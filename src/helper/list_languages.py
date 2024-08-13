@@ -2,7 +2,7 @@ import boto3
 
 
 region = 'eu-central-1'
-polly = boto3.client('polly', region_name = region)
+polly = boto3.client('polly', region_name=region)
 translate = boto3.client(service_name='translate', region_name=region, use_ssl=True)
 
 

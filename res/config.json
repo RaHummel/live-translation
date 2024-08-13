@@ -1,0 +1,41 @@
+{
+  "inputDevice": "default",
+  "output": {
+    "mumble": {
+      "ipAddress": "raspberrypi",
+      "languageChannelMapping": {
+        "en": "English/Translator"
+      }
+    },
+    "speaker": {
+      "outputDevice": "default"
+    }
+  },
+  "translator": {
+    "aws": {
+      "region": "eu-central-1",
+      "source_language": {
+        "de": "de-DE",
+        "en": "en-US"
+      },
+      "target_language": {
+        "en": {
+          "language_code": "en-US",
+          "voice_id": "Kendra"
+        },
+        "pl": {
+          "language_code": "pl-PL",
+          "voice_id": "Jacek"
+        },
+        "ru": {
+          "language_code": "ru-RU",
+          "voice_id": "Maxim"
+        },
+        "de": {
+          "language_code": "de-DE",
+          "voice_id": "Vicki"
+        }
+      }
+  }
+  }
+}
