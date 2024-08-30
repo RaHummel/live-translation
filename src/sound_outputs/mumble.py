@@ -4,7 +4,7 @@ from translation import SoundOutput
 from constants import CHUNK_LEN
 
 
-LOGGER = logging.getLogger()
+LOGGER = logging.getLogger(__name__)
 
 
 class MumbleClient(SoundOutput):

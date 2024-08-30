@@ -10,8 +10,14 @@ from sound_outputs.speaker import Speaker
 
 CONFIG_PATH = 'res/config.json'
 
-LOGGER = logging.getLogger()
-LOGGER.setLevel(os.getenv('LOG_LEVEL') or logging.INFO)
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.StreamHandler()
+                    ])
+
+LOGGER = logging.getLogger(__name__)
 
 
 def main():
@@ -36,21 +42,30 @@ def main():
     else:
         raise ValueError(f"Unsupported input method: {args.input}")
 
-    if args.output == 'mumble':
-        sound_output = MumbleClient(config, args.target_lang[0])
-        sound_output.connect()
-    elif args.output == 'speaker':
-        sound_output = Speaker(config)
-    else:
-        raise ValueError(f"Unsupported output method: {args.output}")
+    output = args.output
+
+    if output == 'speaker' and len(args.target_lang) > 1:
+        raise ValueError(f'Multiple target_lang for speaker output not supported')
+    
+    target_lanuage_mapping = {}
+
+    for language in args.target_lang:
+        if args.output == 'mumble':
+            sound_output = MumbleClient(config, language)
+            sound_output.connect()
+        elif args.output == 'speaker':
+            sound_output = Speaker(config)
+        else:
+            raise ValueError(f"Unsupported output method: {args.output}")
+        
+        target_lanuage_mapping[language] = sound_output
 
     translation = Translation(
         config,
         Translator,
         sound_input,
-        sound_output,
         args.source_lang,
-        args.target_lang[0]  # Assuming only one target language for simplicity
+        target_lanuage_mapping
     )
 
     try:
@@ -58,7 +73,8 @@ def main():
     finally:
         LOGGER.info('Translation stopped')
         if args.output == 'mumble':
-            sound_output.disconnect()
+            for output in target_lanuage_mapping.values():
+                output.disconnect()
 
 
 def load_config(path: str) -> dict:

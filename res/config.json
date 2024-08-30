@@ -2,7 +2,7 @@
   "inputDevice": "default",
   "output": {
     "mumble": {
-      "ipAddress": "raspberrypi",
+      "ipAddress": "localhost",
       "languageChannelMapping": {
         "en": "Channel/Subchannel"
       }

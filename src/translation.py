@@ -1,31 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Callable, List, Dict
 import logging
 import asyncio
 from constants import INPUT_SAMPLE_RATE
 
-LOGGER = logging.getLogger()
 
-
-class Translator(ABC):
-    @abstractmethod
-    async def start_translation(
-            self,
-            source_language: str,
-            target_language: str,
-            sample_rate: int,
-            mic_stream: AsyncGenerator[bytes, None],
-            output_method: Callable[[bytes], None]) -> None:
-        """Starts the translation process.
-
-                Args:
-                    source_language (str): The source language code.
-                    target_language (str): The target language code.
-                    sample_rate (int): The sample rate of the audio.
-                    mic_stream (AsyncGenerator[bytes, None]): An asynchronous generator yielding audio chunks.
-                    output_method (Callable[[bytes], None]): A callable to handle the output audio bytes.
-                """
-        pass
+LOGGER = logging.getLogger(__name__)
 
 
 class SoundInput(ABC):
@@ -50,15 +30,34 @@ class SoundOutput(ABC):
         pass
 
 
+class Translator(ABC):
+    @abstractmethod
+    async def start_translation(
+            self,
+            source_language: str,
+            target_language_mapping: Dict[str, SoundOutput],
+            sample_rate: int,
+            mic_stream: AsyncGenerator[bytes, None]) -> None:
+        """Starts the translation process.
+
+                Args:
+                    source_language (str): The source language code.
+                    target_language (str): The target language code.
+                    sample_rate (int): The sample rate of the audio.
+                    mic_stream (AsyncGenerator[bytes, None]): An asynchronous generator yielding audio chunks.
+                    output_method (Callable[[bytes], None]): A callable to handle the output audio bytes.
+                """
+        pass
+
+
 class Translation:
     def __init__(
             self,
             config,
             translator: Translator,
             sound_input: SoundInput,
-            sound_output: SoundOutput,
             source_language: str,
-            target_language: str) -> None:
+            target_language_mapping: Dict[str, SoundOutput]) -> None:
         """Initializes the Translation instance.
 
         Args:
@@ -73,9 +72,8 @@ class Translation:
         self._config = config
         self._translator = translator
         self._sound_input = sound_input
-        self._sound_output = sound_output
         self._source_language = source_language
-        self._target_language = target_language
+        self._target_language_mapping = target_language_mapping
 
     def run(self):
         """Runs the translation loop."""
@@ -90,9 +88,8 @@ class Translation:
         LOGGER.info("Translation started")
         output_bytes = await self._translator.start_translation(
             source_language=self._source_language,
-            target_language=self._target_language,
+            target_language_mapping=self._target_language_mapping,
             sample_rate=INPUT_SAMPLE_RATE,
-            mic_stream=self._sound_input.get_audio_stream(),
-            output_method=self._sound_output.play
+            mic_stream=self._sound_input.get_audio_stream()
         )
 
