@@ -56,6 +56,7 @@ def main():
     try:
         translation.run()
     finally:
+        LOGGER.info('Translation stopped')
         if args.output == 'mumble':
             sound_output.disconnect()
 

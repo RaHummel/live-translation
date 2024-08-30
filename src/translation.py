@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Callable
+import logging
 import asyncio
 from constants import INPUT_SAMPLE_RATE
+
+LOGGER = logging.getLogger()
 
 
 class Translator(ABC):
@@ -80,10 +83,11 @@ class Translation:
         try:
             loop.run_until_complete(self._start_translation_loop())
         except KeyboardInterrupt:
-            print('loop stopped')
+            LOGGER.info('loop stopped')
         loop.close()
 
     async def _start_translation_loop(self):
+        LOGGER.info("Translation started")
         output_bytes = await self._translator.start_translation(
             source_language=self._source_language,
             target_language=self._target_language,

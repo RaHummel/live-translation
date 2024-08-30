@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
+import logging
 import boto3
 import asyncio
 from translation import Translator
@@ -7,6 +8,9 @@ from constants import OUTPUT_SAMPLE_RATE
 from amazon_transcribe.client import TranscribeStreamingClient, StartStreamTranscriptionEventStream
 from amazon_transcribe.handlers import TranscriptResultStreamHandler
 from amazon_transcribe.model import TranscriptEvent
+
+
+LOGGER = logging.getLogger()
 
 
 class AWSTranslator(Translator):
@@ -77,7 +81,7 @@ class AWSTranslator(Translator):
 
             if len(results) > 0 and len(results[0].alternatives) > 0:
                 transcript = results[0].alternatives[0].transcript
-                print("transcript:", transcript)
+                LOGGER.debug('transcript:', transcript)
 
                 if hasattr(results[0], "is_partial") and not results[0].is_partial:
                     if results[0].channel_id == "ch_0":
@@ -86,8 +90,10 @@ class AWSTranslator(Translator):
                             SourceLanguageCode=self._source_language,
                             TargetLanguageCode=self._target_language['language_code']
                         )
+                        
                         translated_text = trans_result.get("TranslatedText")
-                        print("translated text:", translated_text)
+                        LOGGER.debug('translated text:', translated_text)
+
                         await asyncio.get_event_loop().run_in_executor(
                             self._transcription_service.executor,
                             self._transcription_service.aws_polly_tts,
