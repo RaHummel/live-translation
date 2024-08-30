@@ -22,7 +22,7 @@ bundle: ## bundles the project
 	PIPENV_IGNORE_VIRTUALENVS=1 pipenv run pipenv requirements > requirements.txt
 	PIPENV_IGNORE_VIRTUALENVS=1 pipenv run pip install -r requirements.txt -t build/libs/
 	cp -rf lib/mumble/pymumble_py3 build/libs
-	cp -rf lib/py-opuslib build/libs
+	cp -rf lib/py-opuslib/opuslib build/libs
 	cd build/libs/; zip -qr ../distribution/${ZIP_FILE} .; cd ../../
 	cd src/; zip -qr ../build/distribution/${ZIP_FILE} .; cd ..
 	zip -qr build/distribution/${ZIP_FILE} res;
