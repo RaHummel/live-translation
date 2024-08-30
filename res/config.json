@@ -4,7 +4,7 @@
     "mumble": {
       "ipAddress": "raspberrypi",
       "languageChannelMapping": {
-        "en": "English/Translator"
+        "en": "Channel/Subchannel"
       }
     },
     "speaker": {
@@ -34,6 +34,10 @@
         "de": {
           "language_code": "de-DE",
           "voice_id": "Vicki"
+        },
+        "ro": {
+          "language_code": "ro-RO",
+          "voice_id": "Carmen"
         }
       }
   }

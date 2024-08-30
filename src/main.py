@@ -6,8 +6,9 @@ from translation import Translation
 from translators.aws_translator import AWSTranslator
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
+from sound_outputs.speaker import Speaker
 
-CONFIG_PATH = '../res/config.json'
+CONFIG_PATH = 'res/config.json'
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(os.getenv('LOG_LEVEL') or logging.INFO)
@@ -20,7 +21,7 @@ def main():
     parser.add_argument('-i', '--input', default='mic', help='Sound input method to use (default: mic)')
     parser.add_argument('-o', '--output', default='mumble', choices=['mumble', 'speaker'], help='Sound output method to use (default: mumble)')
     parser.add_argument('-sl', '--source_lang', default='de', choices=['de', 'en'], help='Source language (default: de)')
-    parser.add_argument('-tl', '--target_lang', nargs='+', default=['en'], choices=['en', 'de', 'ru', 'pl'], help='Target language(s) multiple selections soon possible (default: [en])')
+    parser.add_argument('-tl', '--target_lang', nargs='+', default=['en'], choices=['en', 'de', 'ru', 'pl', 'ro'], help='Target language(s) multiple selections soon possible (default: [en])')
 
     args = parser.parse_args()
     config = load_config(CONFIG_PATH)
@@ -36,8 +37,10 @@ def main():
         raise ValueError(f"Unsupported input method: {args.input}")
 
     if args.output == 'mumble':
-        sound_output = MumbleClient(config, 'en')
+        sound_output = MumbleClient(config, args.target_lang[0])
         sound_output.connect()
+    elif args.output == 'speaker':
+        sound_output = Speaker(config)
     else:
         raise ValueError(f"Unsupported output method: {args.output}")
 

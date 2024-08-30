@@ -38,16 +38,18 @@ This project is a real-time translation service that captures audio input, trans
 
 ### Installation Steps
 
-1. **Clone the repository**:
+**Local Development**
 
-2. **Create a virtual environment and install dependencies**:
+1. Clone the repository.
+
+2. Create a virtual environment and install dependencies.
     ```sh
     make install
     ```
 
-3. **Install dependencies**:
-    ```sh
-    pip install -r requirements.txt
+**Bundle whole Project**
+  ```sh
+    make bundle
     ```
 
 ## Configuration
@@ -64,8 +66,7 @@ Example Configuration
       "ipAddress": "raspberrypi",
        "port": 64738,
       "languageChannelMapping": {
-        "en": "English/Translator",  // Channel name for the specific translation
-         "ru": "Russian/Translator"
+        "en": "Channel/Subchannel"  // Channel name for the specific translation
       }
     },
     "speaker": {
@@ -103,10 +104,9 @@ Example Configuration
 ```
 
 ## Usage
-
-To run the translation service, use the following command:
+Extract the bundled zip file into your disired location and
+use the following command to run the translation service:
 ```sh
-make shell
 python main.py 
 ```
 

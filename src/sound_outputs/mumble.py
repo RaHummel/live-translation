@@ -57,6 +57,7 @@ class MumbleClient(SoundOutput):
 
     def _move_to_channel(self):
         """Moves to the specified channel."""
+
         print(f'Move to channel {self._channel_name}')
         # Split the channel path
         channel_path = self._channel_name.split('/')
@@ -64,9 +65,14 @@ class MumbleClient(SoundOutput):
         if len(channel_path) > 2:
             raise ValueError('Invalid channel path. Only one subchannel is supported')
 
+        channel = None
+
         if len(channel_path) == 1:
             main_channel_name = channel_path[0]
-            self._mumble.channels.find_by_name(main_channel_name)
-            return
+            channel = self._mumble.channels.find_by_name(main_channel_name)
 
-        self._mumble.channels.find_by_tree([channel_name for channel_name in channel_path]).move_in()
+        else:
+            channel = self._mumble.channels.find_by_tree([channel_name for channel_name in channel_path])
+
+        # Now move to the channel
+        channel.move_in()

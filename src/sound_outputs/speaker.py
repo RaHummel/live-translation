@@ -6,7 +6,7 @@ import pyaudio
 
 class Speaker(SoundOutput):
 
-    def __init__(self, config: dict, output_device_name: Optional[str] = None):
+    def __init__(self, config: dict):
         """Initializes the Speaker instance.
 
        Args:
@@ -17,7 +17,7 @@ class Speaker(SoundOutput):
         self.pa = pyaudio.PyAudio()
 
         # Setup audio output
-        device_name = output_device_name or config['outputDevice']
+        device_name = config['output']['speaker']['outputDevice']
         self._output_device = self._get_output_device(device_name)
         self._output_dev_index = self._output_device['index']
 
