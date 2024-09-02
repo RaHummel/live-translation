@@ -1,6 +1,10 @@
+import logging
 from pymumble_py3 import Mumble
 from translation import SoundOutput
 from constants import CHUNK_LEN
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MumbleClient(SoundOutput):
@@ -26,7 +30,7 @@ class MumbleClient(SoundOutput):
 
     def connect(self):
         """Connects to the Mumble server and moves to the target channel"""
-        print('Connect to Mumble server')
+        LOGGER.info('Connect to Mumble server')
         self._mumble.start()
         # Wait for the connection to be established
         self._mumble.is_ready()
@@ -42,7 +46,7 @@ class MumbleClient(SoundOutput):
         Args:
             output_bytes (bytes): The audio bytes to play.
         """
-        print("Streaming to Mumble started...")
+        LOGGER.debug("Streaming to Mumble started...")
 
         try:
             # Read data from output_bytes and send it to the Mumble stream
@@ -53,20 +57,26 @@ class MumbleClient(SoundOutput):
 
                 self._mumble.sound_output.add_sound(data)
         finally:
-            print("Streaming completed.")
+            LOGGER.debug("Streaming completed.")
 
     def _move_to_channel(self):
         """Moves to the specified channel."""
-        print(f'Move to channel {self._channel_name}')
+
+        LOGGER.debug(f'Move to channel {self._channel_name}')
         # Split the channel path
         channel_path = self._channel_name.split('/')
 
         if len(channel_path) > 2:
             raise ValueError('Invalid channel path. Only one subchannel is supported')
 
+        channel = None
+
         if len(channel_path) == 1:
             main_channel_name = channel_path[0]
-            self._mumble.channels.find_by_name(main_channel_name)
-            return
+            channel = self._mumble.channels.find_by_name(main_channel_name)
 
-        self._mumble.channels.find_by_tree([channel_name for channel_name in channel_path]).move_in()
+        else:
+            channel = self._mumble.channels.find_by_tree([channel_name for channel_name in channel_path])
+
+        # Now move to the channel
+        channel.move_in()
