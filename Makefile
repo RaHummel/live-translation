@@ -5,22 +5,22 @@ ZIP_FILE ?= translation-service.zip
 # Jenkins required commands
 .PHONY: lock
 lock: 	## install the dependencies
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv run pipenv lock
+	pipenv run pipenv lock
 
 .PHONY: install
 install: 	## install the dependencies
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv sync --dev
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv graph
+	pipenv sync --dev
+	pipenv graph
 
 .PHONY: shell
 shell: 	## start the shell
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv shell
+	pipenv shell
 
 .PHONY: bundle
 bundle: ## bundles the project
 	mkdir -p build/libs build/distribution
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv run pipenv requirements > requirements.txt
-	PIPENV_IGNORE_VIRTUALENVS=1 pipenv run pip install -r requirements.txt -t build/libs/
+	pipenv run pip install -r requirements.txt -t build/libs/
+	pipenv run pipenv requirements > requirements.txt
 	cp -rf lib/mumble/pymumble_py3 build/libs
 	cp -rf lib/py-opuslib/opuslib build/libs
 	cd build/libs/; zip -qr ../distribution/${ZIP_FILE} .; cd ../../

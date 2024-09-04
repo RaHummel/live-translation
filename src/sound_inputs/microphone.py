@@ -2,7 +2,7 @@ import asyncio
 import pyaudio
 from typing import Optional, AsyncGenerator, Mapping
 from translation import SoundInput
-from constants import INPUT_SAMPLE_RATE
+from constants import INPUT_SAMPLE_RATE, INPUT_CHANNELS
 
 
 class Microphone(SoundInput):
@@ -19,7 +19,7 @@ class Microphone(SoundInput):
         # Setup audio input
         device_name: str = input_device_name or config['inputDevice']
         self.input_device = self._get_input_device(device_name)
-        self.input_channel_count = self.input_device['maxInputChannels']
+        self.input_channel_count = INPUT_CHANNELS
         self.input_sample_rate = INPUT_SAMPLE_RATE
         self.input_dev_index = self.input_device['index']
         self.default_frames = int(self.input_sample_rate / 2)
