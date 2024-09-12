@@ -1,72 +1,139 @@
-# Translation Service
+<div align="center" xmlns="http://www.w3.org/1999/html">
 
+<!-- logo -->
+<p align="center">
+  <img src="img/live-translation.png" width="300px" style="vertical-align:middle;">
+</p>
+
+<!-- Badges -->
+<p align="center">
+  
+  <a href="https://github.com/RaHummel/live-translation/issues"><img src="https://img.shields.io/github/issues/RaHummel/live-translation.svg?style=flat-square" alt="Issues"></a>
+  <a href="https://github.com/RaHummel/live-translation/stargazers"><img src="https://img.shields.io/github/stars/RaHummel/live-translation.svg?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/RaHummel/live-translation/network/members"><img src="https://img.shields.io/github/forks/RaHummel/live-translation.svg?style=flat-square" alt="Forks"></a>
+  <a href="https://github.com/RaHummel/live-translation/blob/main/LICENSE"><img src="https://img.shields.io/github/license/RaHummel/live-translation.svg?style=flat-square" alt="License"></a>
+</p>
+</div>
 This project is a real-time translation service that captures audio input, translates it using a specified translator, and outputs the translated audio to a specified output device.
+
+## Features
+
+- **Real-time Translation**: Captures live audio input and translates it instantly.
+- **Multiple Output Options**: Supports various output options, including Speaker and Mumble.
+- **Customizable Translators**: Easily switch between different translation services like AWS.
 
 ## Installation
 
-### Pre-requisites
+### Prerequisites
 
 1. **Python 3.11+**
 2. **PortAudio**:
-    - For Ubuntu, you need to install the following packages: (not tested)
+    - **Windows**: No specific installation required; `PyAudio` includes PortAudio binaries.
+      ```bash
+      pip install pyaudio
+      ```
+    - **Ubuntu**: Install PortAudio via package manager:
+      ```bash
+      sudo apt-get install portaudio19-dev/opus
+      ```
+    - **Mac OS X**: Install PortAudio using Homebrew:
+      ```bash
+      brew install portaudio
+      ```
+      
+33. **Opus**:
+    - **Windows**: Copy the prebuilt `opus.dll` binary inside the lib folder to `C:\Windows\System32`.
+    - **Linux**: Install Opus via package manager (not tested):
         ```bash
-        sudo apt-get install portaudio19-dev
+        sudo apt-get install libopus0 (Arch Linux opus/lib32-opus)
         ```
-    - For Mac OS X, you need to install the following packages:
-        ```bash
-        brew install portaudio
-        ```
-3. **Opus**:
-    - For Ubuntu, you need to install the following packages (not tested):
-        ```bash
-        sudo apt-get install libopus-dev
-        ```
-    - For Mac OS X, you need to install the following packages:
-        ```bash
-        brew install opus
-        ```
-      Since ctypes find_package is searching for the library in `/usr/local/lib`, 
-      you need to copy the opus library to that location:
+    - **Mac OS X**: Install Opus using Homebrew:
+      ```bash
+      brew install opus
+      ```
+      Then copy the Opus library to `/usr/local/lib/`:
       ```bash
       sudo mkdir -p /usr/local/lib
       sudo cp $(brew --prefix opus)/lib/libopus.* /usr/local/lib/
       ```
-3. **pipenv**:
+4. **pipenv**:
     ```bash
     pip install pipenv
     ```
 
-### Installation Steps
+### Local Development Setup
 
-**Local Development**
-
-1. Clone the repository.
-
-2. Create a virtual environment and install dependencies.
+1. Clone the repository:
     ```sh
-    make install
+    git clone https://github.com/RaHummel/live-translation.git
+    cd live-translation
     ```
 
-**Bundle whole Project**
-  ```sh
-    make bundle
+2. Create a virtual environment and install dependencies:
+    ```sh
+    pipenv install
     ```
+
+### Bundling the Project
+
+To bundle the entire project into a deployable package:
+```sh
+make bundle
+```
+
+## Translators
+
+### AWS Translator Setup
+
+Follow the AWS guide to set up the translation service: [AWS Blog Post](https://aws.amazon.com/de/blogs/machine-learning/break-through-language-barriers-with-amazon-transcribe-amazon-translate-and-amazon-polly/).
+
+### Supported Languages
+
+Supported languages and voice configurations can be found in the AWS [Polly Documentation](https://docs.aws.amazon.com/polly/latest/dg/available-voices.html).
+
+## Device Management
+
+To help you identify and configure available audio input and output devices on your system, you can use the `List_devices.py` script located in the `src/helpers` directory. This script lists all available devices, which you can then specify in the `config.json` file for the `inputDevice` and `outputDevice` settings.
+
+### Listing Devices
+
+1. Navigate to the `src/helpers` directory:
+    ```sh
+    cd src/helpers
+    ```
+
+2. Run the `List_devices.py` script:
+    ```sh
+    python List_devices.py
+    ```
+
+3. The script will output a list of all available audio devices. Use the device names from this list to configure your `config.json` file.
+
+**Example output:**
+```
+Input Devices:
+0. Microphone (Realtek Audio)
+1. USB Microphone
+
+Output Devices:
+0. Speakers (Realtek Audio)
+1. Headphones (USB Audio)
+```
 
 ## Configuration
 
-The configuration file is located at res/config.json. It includes parameters for the translator, input, and output devices.
-Example Configuration
+The configuration file is located at `res/config.json`. It allows you to set parameters for the translator, input, and output devices.
 
-**Example Configuration**
+**Example Configuration:**
 ```json
 {
   "inputDevice": "default",
   "output": {
     "mumble": {
-      "ipAddress": "raspberrypi",
-       "port": 64738,
+      "ipAddress": "localhost",
+      "port": 64738,
       "languageChannelMapping": {
-        "en": "Channel/Subchannel"  // Channel name for the specific translation
+        "en": "Channel/Subchannel"
       }
     },
     "speaker": {
@@ -98,28 +165,29 @@ Example Configuration
           "voice_id": "Vicki"
         }
       }
-  }
+    }
   }
 }
 ```
 
 ## Usage
-Extract the bundled zip file into your disired location and
-use the following command to run the translation service:
+After extracting the bundled zip file to your desired location, run the translation service with the following command:
 ```sh
 python main.py 
 ```
 
 **Command-line Arguments**
-- -t, --translator: Translator to use (default: aws)
-- -i, --input: Sound input method to use (default: mic)
-- -o, --output: Sound output method to use (default: mumble)
-- -sl, --source_lang: Source language (default: de)
-- -tl, --target_lang: Target language(s) (default: [en])
+- `-t, --translator`: Translator to use (default: aws)
+- `-i, --input`: Sound input method to use (default: mic)
+- `-o, --output`: Sound output method to use (default: mumble)
+- `-sl, --source_lang`: Source language (default: de)
+- `-tl, --target_lang`: Target language(s) (default: [en])
 
 
+## Known Issues
 
-## Side Notes
-Opuslib and pymumble are not maintained anymore.
-So, we need to use the forked version of the libraries, 
-since some changes were made to the original ones.
+- **Opuslib and pymumble**: These libraries are no longer maintained. Forked versions are used with necessary modifications.
+
+## Contributing
+
+Contributions are welcome! Please fork the repository and submit a pull request.
