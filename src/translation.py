@@ -42,7 +42,7 @@ class Translator(ABC):
 
                 Args:
                     source_language (str): The source language code.
-                    target_language (str): The target language code.
+                    target_language:mapping Dict[str, SoundOutput]: Mapping of target language code to SoundOutput.
                     sample_rate (int): The sample rate of the audio.
                     mic_stream (AsyncGenerator[bytes, None]): An asynchronous generator yielding audio chunks.
                     output_method (Callable[[bytes], None]): A callable to handle the output audio bytes.
