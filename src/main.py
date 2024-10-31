@@ -1,15 +1,14 @@
 import json
 import argparse
 import logging
-import os
 from translation import Translation
 from translators.aws_translator import AWSTranslator
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
 from sound_outputs.speaker import Speaker
 
-CONFIG_PATH = 'res/config.json'
 
+CONFIG_PATH = 'res/config.json'
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -26,10 +25,18 @@ def main():
     parser.add_argument('-t', '--translator', default='aws', help='Translator to use (default: aws)')
     parser.add_argument('-i', '--input', default='mic', help='Sound input method to use (default: mic)')
     parser.add_argument('-o', '--output', default='mumble', choices=['mumble', 'speaker'], help='Sound output method to use (default: mumble)')
-    parser.add_argument('-sl', '--source_lang', default='de', choices=['de', 'en'], help='Source language (default: de)')
-    parser.add_argument('-tl', '--target_lang', nargs='+', default=['en'], choices=['en', 'de', 'ru', 'pl', 'ro'], help='Target language(s) multiple selections soon possible (default: [en])')
+    parser.add_argument('-sl', '--source_lang', default='de', help='Source language (default: de)')
+    parser.add_argument('-tl', '--target_lang', nargs='+', default=['en'], help='Target language(s) multiple selections soon possible (default: [en])')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
 
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        # Following logs are too noisy
+        logging.getLogger('botocore').setLevel(logging.INFO)
+        logging.getLogger('urllib3.connectionpool').setLevel(logging.INFO)
+    
     config = load_config(CONFIG_PATH)
 
     if args.translator == 'aws':

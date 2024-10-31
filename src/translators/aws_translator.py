@@ -28,6 +28,8 @@ class AWSTranslator(Translator):
         self.target_language: Optional[str] = None
         self._output: callable = None
 
+        LOGGER.debug('AWS Translator initialized')
+
     async def start_translation(
             self,
             source_language: str,
@@ -83,10 +85,10 @@ class AWSTranslator(Translator):
 
             if len(results) > 0 and len(results[0].alternatives) > 0:
                 transcript = results[0].alternatives[0].transcript
-                LOGGER.debug('Transcript:', transcript)
 
                 if hasattr(results[0], "is_partial") and not results[0].is_partial:
                     if results[0].channel_id == "ch_0":
+                        LOGGER.debug('Transcript: %s', transcript)
 
                         for language_config in self._target_language_configs:
                             trans_result = self._transcription_service.translate.translate_text(
@@ -96,7 +98,7 @@ class AWSTranslator(Translator):
                             )
 
                             translated_text = trans_result.get("TranslatedText")
-                            LOGGER.debug('Translated text:', translated_text)
+                            LOGGER.debug('Translated text: %s', translated_text)
 
                             await asyncio.get_event_loop().run_in_executor(
                                 self._transcription_service.executor,

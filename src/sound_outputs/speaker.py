@@ -1,7 +1,11 @@
-from typing import Optional, Mapping
+import logging
+from typing import Mapping
 from translation import SoundOutput
 from constants import OUTPUT_SAMPLE_RATE, CHUNK_LEN
 import pyaudio
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Speaker(SoundOutput):
@@ -20,6 +24,8 @@ class Speaker(SoundOutput):
         device_name = config['output']['speaker']['outputDevice']
         self._output_device = self._get_output_device(device_name)
         self._output_dev_index = self._output_device['index']
+
+        LOGGER.debug('Speaker client with %s initialized', self._output_device['name'])
 
     def play(self, output_bytes: bytes):
         """Streams audio data to the speakers.

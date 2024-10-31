@@ -1,9 +1,12 @@
+import logging
 import asyncio
 import pyaudio
 from typing import Optional, AsyncGenerator, Mapping
 from translation import SoundInput
 from constants import INPUT_SAMPLE_RATE, INPUT_CHANNELS
 
+
+LOGGER = logging.getLogger(__name__)
 
 class Microphone(SoundInput):
     def __init__(self, config: dict, input_device_name: Optional[str] = None):
@@ -23,6 +26,8 @@ class Microphone(SoundInput):
         self.input_sample_rate = INPUT_SAMPLE_RATE
         self.input_dev_index = self.input_device['index']
         self.default_frames = int(self.input_sample_rate / 2)
+
+        LOGGER.debug('Microphone client with %s initialized', self.input_device['name'])
 
     async def get_audio_stream(self) -> AsyncGenerator[bytes, None]:
         """Streams audio from the microphone to an asyncio.Queue.
