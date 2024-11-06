@@ -42,7 +42,7 @@ This project is a real-time translation service that captures audio input, trans
       ```
       
 33. **Opus**:
-    - **Windows**: Copy the prebuilt `opus.dll` binary inside the lib folder to `C:\Windows\System32`.
+    - **Windows**: Follow the [installation Guide](https://github.com/shardlab/discordrb/wiki/Installing-libopus#windows).
     - **Linux**: Install Opus via package manager (not tested):
         ```bash
         sudo apt-get install libopus0 (Arch Linux opus/lib32-opus)
@@ -56,7 +56,7 @@ This project is a real-time translation service that captures audio input, trans
       sudo mkdir -p /usr/local/lib
       sudo cp $(brew --prefix opus)/lib/libopus.* /usr/local/lib/
       ```
-4. **pipenv**:
+34. **pipenv**:
     ```bash
     pip install pipenv
     ```
@@ -78,18 +78,25 @@ This project is a real-time translation service that captures audio input, trans
 
 To bundle the entire project into a deployable package:
 ```sh
-make bundle
+make bundle  // Linux, OS X
+```
+
+```
+.\build.ps1 bundle // Windows
 ```
 
 ## Translators
 
 ### AWS Translator Setup
 
-Follow the AWS guide to set up the translation service: [AWS Blog Post](https://aws.amazon.com/de/blogs/machine-learning/break-through-language-barriers-with-amazon-transcribe-amazon-translate-and-amazon-polly/).
+Follow the [AWS Setup Guide](./docs/AwsSetup.md)
 
 ### Supported Languages
 
 Supported languages and voice configurations can be found in the AWS [Polly Documentation](https://docs.aws.amazon.com/polly/latest/dg/available-voices.html).
+
+## Mumble Setup
+For detailed instructions on setting up Mumble, refer to the [Mumble Setup Guide](./docs/MumbleSetup.md)
 
 ## Device Management
 

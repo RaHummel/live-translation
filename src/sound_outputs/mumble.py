@@ -27,6 +27,8 @@ class MumbleClient(SoundOutput):
             user=language + '_' + MumbleClient.username_postfix,
             password=server_config.get('password', ''),
             reconnect=True)
+        
+        LOGGER.debug('Mumble client initialized')
 
     def connect(self):
         """Connects to the Mumble server and moves to the target channel"""

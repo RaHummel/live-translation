@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable, List, Dict
+from typing import AsyncGenerator, Dict
 import logging
 import asyncio
 from constants import INPUT_SAMPLE_RATE
