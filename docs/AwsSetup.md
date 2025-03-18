@@ -8,17 +8,38 @@
 ## 2. Creating a User
 - Sign in to the AWS Management Console.
 - Navigate to the **IAM (Identity and Access Management)** service.
-- In the left navigation pane, click on **Users** and then **Add user**.
-- Enter a **User name**.
-- Click **Next: Permissions**. Select **Attach policies directly**.
-- Search for and select the following managed policies:
-  - `AmazonTranscribeFullAccess`
-  - `AmazonPollyFullAccess`
-- Click **Next: Review**, and finally **Create user**.
+- In the left navigation pane, click on **Users** and then **Create user**.
+- Enter a **User name** and click **Next**.
+- Skip permissions for now and click **Next**.
+- Finally click **Create user**
 
-## 3. Generating Access Keys for the User
+## 3. Add Permissions and generate Access Keys for the User
 - After creating the user, you will see the User details page.
-- Click on **Create access key**.
+- Select the user you just created.
+- Click on **Add permissions** and select **Create inline policy**.
+- Click **JSON** create a policy with these permissions:
+  <details>
+  <summary>Policy permissions</summary>
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "polly:SynthesizeSpeech",
+                "transcribe:StartStreamTranscription",
+                "translate:ListLanguages",
+                "translate:TranslateText",
+                "polly:DescribeVoices"
+            ],
+            "Resource": "*"
+        }
+    ]
+  }
+  </details>
+- Set a Policy name, e.g. `Gemeinde-Uebersetzung`. Then select **Create policy**.
+- Back in the user menu click on **Create access key**.
 - Note down the **Access key ID** and **Secret access key**.
 
 ## 4. Storing Access Keys Locally
