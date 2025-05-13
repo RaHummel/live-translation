@@ -36,6 +36,10 @@ This project is a real-time translation service that captures audio input, trans
       ```bash
       sudo apt-get install portaudio19-dev/opus
       ```
+      If you are on a armhf system (like Raspberry Pi OS), run:
+      ```
+      sudo apt-get install portaudio19-dev libopus-dev
+      ```
     - **Mac OS X**: Install PortAudio using Homebrew:
       ```bash
       brew install portaudio
@@ -43,9 +47,9 @@ This project is a real-time translation service that captures audio input, trans
       
 33. **Opus**:
     - **Windows**: Follow the [installation Guide](https://github.com/shardlab/discordrb/wiki/Installing-libopus#windows).
-    - **Linux**: Install Opus via package manager (not tested):
+    - **Linux**: Install Opus (Arch Linux opus/lib32-opus) via package manager (not tested):
         ```bash
-        sudo apt-get install libopus0 (Arch Linux opus/lib32-opus)
+        sudo apt-get install libopus0
         ```
     - **Mac OS X**: Install Opus using Homebrew:
       ```bash
@@ -181,6 +185,12 @@ The configuration file is located at `res/config.json`. It allows you to set par
 After extracting the bundled zip file to your desired location, run the translation service with the following command:
 ```sh
 python main.py 
+```
+
+If you want to use it without bundling, then make sure to first activate the pipenv environment. Run the following in the live-translation folder:
+```sh
+pipenv shell
+python src/main.py 
 ```
 
 **Command-line Arguments**
