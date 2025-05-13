@@ -104,13 +104,13 @@ For detailed instructions on setting up Mumble, refer to the [Mumble Setup Guide
 
 ## Device Management
 
-To help you identify and configure available audio input and output devices on your system, you can use the `List_devices.py` script located in the `src/helpers` directory. This script lists all available devices, which you can then specify in the `config.json` file for the `inputDevice` and `outputDevice` settings.
+To help you identify and configure available audio input and output devices on your system, you can use the `List_devices.py` script located in the `src/helper` directory. This script lists all available devices, which you can then specify in the `config.json` file for the `inputDevice` and `outputDevice` settings.
 
 ### Listing Devices
 
-1. Navigate to the `src/helpers` directory:
+1. Navigate to the `src/helper` directory:
     ```sh
-    cd src/helpers
+    cd src/helper
     ```
 
 2. Run the `List_devices.py` script:
