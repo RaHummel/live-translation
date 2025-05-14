@@ -104,14 +104,14 @@ To help you identify and configure available audio input and output devices on y
 
 ### Listing Devices
 
-1. Navigate to the `src/helpers` directory:
+1. Navigate to the `src/helper` directory:
     ```sh
-    cd src/helpers
+    cd src/helper
     ```
 
-2. Run the `List_devices.py` script:
+2. Run the `list_devices.py` script:
     ```sh
-    python List_devices.py
+    python list_devices.py
     ```
 
 3. The script will output a list of all available audio devices. Use the device names from this list to configure your `config.json` file.
