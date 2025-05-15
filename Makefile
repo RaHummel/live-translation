@@ -19,8 +19,8 @@ shell: 	## start the shell
 .PHONY: bundle
 bundle: ## bundles the project
 	mkdir -p build/libs build/distribution
-	pipenv run pip install -r requirements.txt -t build/libs/
 	pipenv run pipenv requirements > requirements.txt
+	pipenv run pip install -r requirements.txt -t build/libs/
 	cp -rf lib/mumble/pymumble_py3 build/libs
 	cp -rf lib/py-opuslib/opuslib build/libs
 	cd build/libs/; zip -qr ../distribution/${ZIP_FILE} .; cd ../../
