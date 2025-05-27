@@ -28,7 +28,7 @@ This project is a real-time translation service that captures audio input, trans
 
 1. **Python 3.11+**
     - **Ubuntu**: Possible you need:
-      ```bash```
+      ```bash
       sudo apt-get install python3-dev
       ```
 2. **PortAudio**:
