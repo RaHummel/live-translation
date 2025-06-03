@@ -22,7 +22,26 @@ This project is a real-time translation service that captures audio input, trans
 - **Multiple Output Options**: Supports various output options, including Speaker and Mumble.
 - **Customizable Translators**: Easily switch between different translation services like AWS.
 
+## Architecture Overview
+
+The following diagram shows how the recommended setup works.
+
+<p align="center">
+  <img src="img/architecture-diagram.png" style="vertical-align:middle;">
+</p>
+
+1. The input sound is transferred to the device running the translation service. This depends heavily on the conditions on-site and could involve multiple devices like an audio mixer, etc.
+2. The translation service translates this input audio according to the configuration.  
+    2a. Speech-to-Text: This service streams the input into AWS Transcribe. AWS Transcribe analyzes the audio, looks for end of sentences or pauses and returns pieces of text in the original language of the audio.  
+    2b. Text-to-Text: The pieces of texts are sent to AWS Translate. AWS Translate returns the translation as text for every requested language.  
+    2c. Text-to-Speech: The translated text is sent to AWS Polly. AWS Polly returns an audio file for each requested language.
+3. This service is connected to the configured Mumble Server (once per language). The translated audio is then played in each respective channel. The device running this service and the mumble server may be identical.
+4. The audience logs into the mumble service with their device (e.g. their Smartphone) and joins the channel of the language of their choice. For IOS use [Mumble](https://apps.apple.com/de/app/mumble/id443472808). For Android use [Mumla](https://play.google.com/store/apps/details?id=se.lublin.mumla&hl=de). If the Mumble Service runs in a local network, audience has to join the same network with their devices. E.g. if there is a local internet router devices have to connect to the local Wifi.
+
+
 ## Installation
+
+How to install the translation service.
 
 ### Prerequisites
 
@@ -138,6 +157,18 @@ Output Devices:
 ## Configuration
 
 The configuration file is located at `res/config.json`. It allows you to set parameters for the translator, input, and output devices.
+
+**Guide**
+- **output**:  
+  - **mumble**: connects the translation service to your Mumble server. It depends on your local setup. If you do not run Mumble on the same device then adapt **ipAddress** and **port**. The **languageChannelMapping** has to match the [channel structure](/docs/MumbleSetup.md#channel-structure).
+  - **speaker**: Used for testing without Mumble.
+- **translator**: Only supports aws right now
+  - **aws**:
+    - **region**: choose the aws region you want to connect to. eu-central-1 is Europe (Frankfurt). All regions can be found [here](https://docs.aws.amazon.com/de_de/AmazonRDS/latest/UserGuide/Concepts.RegionsAndAvailabilityZones.html).
+    - **source_language**: define all languages that you might want to use as source. You use the key (text before colon) to [run the service](#usage). The value (text after colon) has to match the [language-code used by AWS Transcribe](https://docs.aws.amazon.com/transcribe/latest/dg/supported-languages.html).
+    - **target_language**: define all languages that you mught want to use as target language. You use the key (text before colon) to [run the service](#usage).
+      - **language_code**: the language code has to match the [one defined by Amazon Polly](https://docs.aws.amazon.com/polly/latest/dg/available-voices.html).
+      - **voice_id**: per language code [Amazon Polly offers different voices](https://docs.aws.amazon.com/polly/latest/dg/available-voices.html).
 
 **Example Configuration:**
 ```json
