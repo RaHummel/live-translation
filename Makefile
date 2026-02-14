@@ -1,28 +1,37 @@
-SHELL:=/bin/bash
+# Makefile for Live Translation
 
-ZIP_FILE ?= translation-service.zip
+ZIP_FILE = translation-service.zip
 
-# Jenkins required commands
-.PHONY: lock
-lock: 	## install the dependencies
-	pipenv run pipenv lock
+.PHONY: proto build-installer bundle lock install shell help
 
-.PHONY: install
-install: 	## install the dependencies
-	pipenv sync --dev
-	pipenv graph
+help:
+	@echo "Available commands:"
+	@echo "  proto            - Regenerate Mumble protobuf files"
+	@echo "  lock             - Update dependencies lock file"
+	@echo "  lint             - Check code style"
+	@echo "  format           - Format code"
+	@echo "  install          - Install dependencies"
+	@echo "  shell            - Open a shell in the virtual environment"
 
-.PHONY: shell
-shell: 	## start the shell
-	pipenv shell
+proto:
+	@echo "Regenerating protobuf files..."
+	uv run --with grpcio-tools python -m grpc_tools.protoc \
+	  --proto_path=lib/mumble/src/pymumble_py3 \
+	  --python_out=lib/mumble/src/pymumble_py3 \
+	  lib/mumble/src/pymumble_py3/Mumble.proto
+	@echo "Protobuf files regenerated successfully."
 
-.PHONY: bundle
-bundle: ## bundles the project
-	mkdir -p build/libs build/distribution
-	pipenv run pipenv requirements > requirements.txt
-	pipenv run pip install -r requirements.txt -t build/libs/
-	cp -rf lib/mumble/pymumble_py3 build/libs
-	cp -rf lib/py-opuslib/opuslib build/libs
-	cd build/libs/; zip -qr ../distribution/${ZIP_FILE} .; cd ../../
-	cd src/; zip -qr ../build/distribution/${ZIP_FILE} .; cd ..
-	zip -qr build/distribution/${ZIP_FILE} res;
+lock:
+	uv lock
+
+install:
+	uv sync
+
+lint:
+	uv run ruff check
+
+format:
+	uv run ruff format
+
+shell:
+	uv run zsh
