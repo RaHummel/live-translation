@@ -1,0 +1,16 @@
+[project]
+name = "pymumble"
+version = "1.6.1"
+requires-python = ">=3.14"
+authors = [{ name = "Azlux" }]
+description = "Mumble library used for multiple uses like making mumble bot"
+dependencies = [
+    "protobuf"
+]
+
+[tool.uv.build-backend]
+module-name = "pymumble_py3"
+
+[build-system]
+requires = ["uv-build"]
+build-backend = "uv_build"

@@ -7,8 +7,8 @@ import sys
 import unittest
 
 import opuslib.api
-import opuslib.api.decoder
 import opuslib.api.ctl
+import opuslib.api.decoder
 
 __author__ = 'Никита Кузнецов <self@svartalf.info>'
 __copyright__ = 'Copyright (c) 2012, SvartalF'
@@ -62,8 +62,8 @@ class DecoderTest(unittest.TestCase):
     def test_create(cls):
         try:
             dec = opuslib.api.decoder.create_state(48000, 2)
-        except opuslib.OpusError:
-            raise AssertionError()
+        except opuslib.OpusError as err:
+            raise AssertionError() from err
         else:
             opuslib.api.decoder.destroy(dec)
 
@@ -80,8 +80,7 @@ class DecoderTest(unittest.TestCase):
         dec = opuslib.api.decoder.create_state(48000, 2)
 
         try:
-            opuslib.api.decoder.decoder_ctl(
-                dec, opuslib.api.ctl.unimplemented)
+            opuslib.api.decoder.decoder_ctl(dec, opuslib.api.ctl.unimplemented)
         except opuslib.OpusError as exc:
             self.assertEqual(exc.code, opuslib.UNIMPLEMENTED)
 
@@ -89,8 +88,7 @@ class DecoderTest(unittest.TestCase):
 
     def test_get_bandwidth(self):
         dec = opuslib.api.decoder.create_state(48000, 2)
-        value = opuslib.api.decoder.decoder_ctl(
-            dec, opuslib.api.ctl.get_bandwidth)
+        value = opuslib.api.decoder.decoder_ctl(dec, opuslib.api.ctl.get_bandwidth)
         self.assertEqual(value, 0)
         opuslib.api.decoder.destroy(dec)
 
@@ -119,14 +117,12 @@ class DecoderTest(unittest.TestCase):
         self.assertEqual(i, 0)
 
         try:
-            opuslib.api.decoder.decoder_ctl(
-                dec, opuslib.api.ctl.set_gain, -32769)
+            opuslib.api.decoder.decoder_ctl(dec, opuslib.api.ctl.set_gain, -32769)
         except opuslib.OpusError as exc:
             self.assertEqual(exc.code, opuslib.BAD_ARG)
 
         try:
-            opuslib.api.decoder.decoder_ctl(
-                dec, opuslib.api.ctl.set_gain, 32768)
+            opuslib.api.decoder.decoder_ctl(dec, opuslib.api.ctl.set_gain, 32768)
         except opuslib.OpusError as exc:
             self.assertEqual(exc.code, opuslib.BAD_ARG)
 
@@ -147,18 +143,14 @@ class DecoderTest(unittest.TestCase):
 
         dec = opuslib.api.decoder.create_state(48000, 2)
 
-        self.assertEqual(
-            480, opuslib.api.decoder.get_nb_samples(dec, bytes([0]), 1))
+        self.assertEqual(480, opuslib.api.decoder.get_nb_samples(dec, bytes([0]), 1))
 
         packet = bytes()
         for xxc in ((63 << 2) | 3, 63):
             packet += bytes([xxc])
 
         # TODO: check for exception code
-        self.assertRaises(
-            opuslib.OpusError,
-            lambda: opuslib.api.decoder.get_nb_samples(dec, packet, 2)
-        )
+        self.assertRaises(opuslib.OpusError, lambda: opuslib.api.decoder.get_nb_samples(dec, packet, 2))
 
         opuslib.api.decoder.destroy(dec)
 
@@ -169,10 +161,7 @@ class DecoderTest(unittest.TestCase):
         for xxc in ((63 << 2) | 3, 63):
             packet += bytes([xxc])
 
-        self.assertRaises(
-            opuslib.OpusError,
-            lambda: opuslib.api.decoder.packet_get_nb_frames(packet, 0)
-        )
+        self.assertRaises(opuslib.OpusError, lambda: opuslib.api.decoder.packet_get_nb_frames(packet, 0))
 
         l1res = (1, 2, 2, opuslib.INVALID_PACKET)
 
@@ -181,10 +170,7 @@ class DecoderTest(unittest.TestCase):
             expected_result = l1res[ixc & 3]
 
             try:
-                self.assertEqual(
-                    expected_result,
-                    opuslib.api.decoder.packet_get_nb_frames(packet, 1)
-                )
+                self.assertEqual(expected_result, opuslib.api.decoder.packet_get_nb_frames(packet, 1))
             except opuslib.OpusError as exc:
                 if exc.code == expected_result:
                     continue
@@ -194,7 +180,7 @@ class DecoderTest(unittest.TestCase):
 
                 self.assertEqual(
                     expected_result if expected_result != 3 else (packet[1] & 63),  # NOQA
-                    opuslib.api.decoder.packet_get_nb_frames(packet, 2)
+                    opuslib.api.decoder.packet_get_nb_frames(packet, 2),
                 )
 
     def test_packet_get_bandwidth(self):
@@ -205,11 +191,11 @@ class DecoderTest(unittest.TestCase):
             bwx = ixc >> 4
 
             # Very cozy code from the test_opus_api.c
-            _bwx = opuslib.BANDWIDTH_NARROWBAND + (((((bwx & 7) * 9) & (63 - (bwx & 8))) + 2 + 12 * ((bwx & 8) != 0)) >> 4)  # NOQA pylint: disable=line-too-long
+            _bwx = opuslib.BANDWIDTH_NARROWBAND + (
+                ((((bwx & 7) * 9) & (63 - (bwx & 8))) + 2 + 12 * ((bwx & 8) != 0)) >> 4
+            )  # NOQA pylint: disable=line-too-long
 
-            self.assertEqual(
-                _bwx, opuslib.api.decoder.packet_get_bandwidth(packet)
-            )
+            self.assertEqual(_bwx, opuslib.api.decoder.packet_get_bandwidth(packet))
 
     def test_decode(self):
         """opus_decode()"""

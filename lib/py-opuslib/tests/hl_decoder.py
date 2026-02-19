@@ -15,7 +15,6 @@ __license__ = 'BSD 3-Clause License'
 
 
 class DecoderTest(unittest.TestCase):
-
     def test_create(self):
         try:
             opuslib.Decoder(1000, 3)

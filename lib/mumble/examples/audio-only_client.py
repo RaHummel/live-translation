@@ -23,15 +23,15 @@
 # Works on MacOS. Does NOT work on RPi 3B+ (I cannot figure out why. Help will
 # be much appreciated)
 
+import pyaudio
 import pymumble.pymumble_py3 as pymumble_py3
 from pymumble.pymumble_py3.callbacks import PYMUMBLE_CLBK_SOUNDRECEIVED as PCS
-import pyaudio
 
 # Connection details for mumble server. Hardcoded for now, will have to be
 # command line arguments eventually
-pwd = ""  # password
-server = "sf.guildbit.com"  # server address
-nick = "audio-only_client"
+pwd = ''  # password
+server = 'sf.guildbit.com'  # server address
+nick = 'audio-only_client'
 port = 50013  # port number
 
 
@@ -42,17 +42,19 @@ CHANNELS = 1
 RATE = 48000  # pymumble soundchunk.pcm is 48000Hz
 
 p = pyaudio.PyAudio()
-stream = p.open(format=FORMAT,
-                channels=CHANNELS,
-                rate=RATE,
-                input=True,  # enable both talk
-                output=True,  # and listen
-                frames_per_buffer=CHUNK)
+stream = p.open(
+    format=FORMAT,
+    channels=CHANNELS,
+    rate=RATE,
+    input=True,  # enable both talk
+    output=True,  # and listen
+    frames_per_buffer=CHUNK,
+)
 
 
 # mumble client set up
 def sound_received_handler(user, soundchunk):
-    """ play sound received from mumble server upon its arrival """
+    """play sound received from mumble server upon its arrival"""
     stream.write(soundchunk.pcm)
 
 

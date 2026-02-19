@@ -15,7 +15,6 @@ __license__ = 'BSD 3-Clause License'
 
 
 class EncoderTest(unittest.TestCase):
-
     def test_create(self):
         try:
             opuslib.Encoder(1000, 3, opuslib.APPLICATION_AUDIO)

@@ -1,101 +1,148 @@
-import json
 import argparse
 import logging
-from translation import Translation
-from translators.aws_translator import AWSTranslator
+import sys
+
+from PySide6.QtWidgets import QApplication
+
+from config.config_manager import ConfigManager
+from config.model.config_models import UserConfig
+from main_window import MainWindow
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
 from sound_outputs.speaker import Speaker
+from translation import Translation
+from translators.aws_translator import AWSTranslator
 
 
-CONFIG_PATH = 'res/config.json'
+def configure_logging(verbose: bool = False) -> None:
+    """
+    Configure logging for the application.
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    handlers=[
-                        logging.StreamHandler()
-                    ])
+    Args:
+        verbose: If True, set log level to DEBUG. Otherwise, set to INFO.
+    """
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler()],
+    )
 
-LOGGER = logging.getLogger(__name__)
-
-
-def main():
-    """Main function to run the translation service script."""
-    parser = argparse.ArgumentParser(description='Translation service script.')
-    parser.add_argument('-t', '--translator', default='aws', help='Translator to use (default: aws)')
-    parser.add_argument('-i', '--input', default='mic', help='Sound input method to use (default: mic)')
-    parser.add_argument('-o', '--output', default='mumble', choices=['mumble', 'speaker'], help='Sound output method to use (default: mumble)')
-    parser.add_argument('-sl', '--source_lang', default='de', help='Source language (default: de)')
-    parser.add_argument('-tl', '--target_lang', nargs='+', default=['en'], help='Target language(s) multiple selections soon possible (default: [en])')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
-
-    args = parser.parse_args()
-
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-        # Following logs are too noisy
+    # Reduce verbosity of noisy third-party libraries
+    if verbose:
         logging.getLogger('botocore').setLevel(logging.INFO)
         logging.getLogger('urllib3.connectionpool').setLevel(logging.INFO)
-    
-    config = load_config(CONFIG_PATH)
 
-    if args.translator == 'aws':
-        Translator = AWSTranslator(config)
+
+def run_cli_mode(arguments, usr_config: UserConfig):
+    """
+    Executes the main logic of the translation service in CLI mode.
+    This function encapsulates the existing CLI code.
+
+    Args:
+        arguments: Parsed command-line arguments.
+        usr_config (UserConfig): User configuration object.
+    """
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.info('Starting Translation Service in CLI mode...')
+
+    # Override config with CLI arguments if provided
+    if arguments.source_lang:
+        usr_config.translator_settings.aws_settings.source_language = arguments.source_lang
+
+    input_method = 'mic'  # Currently only microphone is supported
+    output_method = usr_config.output_settings.output_method
+    translator_type = usr_config.translator_settings.translator
+
+    # Determine target languages: CLI takes precedence over config
+    target_langs = arguments.target_lang
+    if not target_langs:
+        target_langs = list(usr_config.translator_settings.aws_settings.target_languages.keys())
+
+    if translator_type == 'aws':
+        # Ensure target languages from CLI are in the config
+        for lang in target_langs:
+            if lang not in usr_config.translator_settings.aws_settings.target_languages:
+                raise ValueError(f'Target language {lang} not found in config')
+
+        translator = AWSTranslator(
+            usr_config.translator_settings.aws_settings,
+            usr_config.input_settings,
+            usr_config.output_settings,
+        )
     else:
-        raise ValueError(f"Unsupported translator: {args.translator}")
+        raise ValueError(f'Unsupported translator: {translator_type}')
 
-    if args.input == 'mic':
-        sound_input = Microphone(config)
+    if input_method == 'mic':
+        sound_input = Microphone(usr_config.input_settings)
     else:
-        raise ValueError(f"Unsupported input method: {args.input}")
+        raise ValueError(f'Unsupported input method: {input_method}')
 
-    output = args.output
+    if output_method == 'speaker' and len(target_langs) > 1:
+        raise ValueError('Multiple target_lang for speaker output not supported')
 
-    if output == 'speaker' and len(args.target_lang) > 1:
-        raise ValueError(f'Multiple target_lang for speaker output not supported')
-    
-    target_lanuage_mapping = {}
+    target_language_mapping = {}
 
-    for language in args.target_lang:
-        if args.output == 'mumble':
-            sound_output = MumbleClient(config, language)
+    for language in target_langs:
+        if output_method == 'mumble':
+            sound_output = MumbleClient(usr_config.output_settings, language)
             sound_output.connect()
-        elif args.output == 'speaker':
-            sound_output = Speaker(config)
+        elif output_method == 'speaker':
+            sound_output = Speaker(usr_config.output_settings)
         else:
-            raise ValueError(f"Unsupported output method: {args.output}")
-        
-        target_lanuage_mapping[language] = sound_output
+            raise ValueError(f'Unsupported output method: {output_method}')
 
-    translation = Translation(
-        config,
-        Translator,
-        sound_input,
-        args.source_lang,
-        target_lanuage_mapping
-    )
+        target_language_mapping[language] = sound_output
+
+    translation = Translation(translator, sound_input, target_language_mapping)
 
     try:
         translation.run()
     finally:
         LOGGER.info('Translation stopped')
-        if args.output == 'mumble':
-            for output in target_lanuage_mapping.values():
-                output.disconnect()
+        for output in target_language_mapping.values():
+            output.stop_audio_stream()
 
 
-def load_config(path: str) -> dict:
-    """Loads the configuration from a JSON file.
+def run_gui_mode(conf_manager: ConfigManager):
+    """
+    Starts the graphical user interface.
 
     Args:
-        path (str): The path to the configuration file.
-
-    Returns:
-        Dict: The loaded configuration dictionary.
+        conf_manager (ConfigManager): The configuration manager instance.
     """
-    with open(path, 'r') as file:
-        return json.load(file)
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.info('Starting Translation Service in GUI mode...')
+    app = QApplication(sys.argv)
+    window = MainWindow(conf_manager)
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Translation service script.')
+
+    parser.add_argument(
+        '--no-gui',
+        action='store_true',
+        help='Run the application in command-line interface (CLI) mode without a graphical user interface.',
+    )
+    parser.add_argument('-sl', '--source_lang', help='Source language (e.g. de-DE)')
+    parser.add_argument(
+        '-tl',
+        '--target_lang',
+        nargs='+',
+        help='Target language(s) (e.g. en-US ru-RU)',
+    )
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
+
+    args = parser.parse_args()
+
+    configure_logging(verbose=args.verbose)
+
+    config_manager = ConfigManager()
+
+    if args.no_gui:
+        run_cli_mode(args, config_manager.config)
+    else:
+        run_gui_mode(config_manager)
