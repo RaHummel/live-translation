@@ -12,6 +12,7 @@ help:
 	@echo "  format           - Format code"
 	@echo "  install          - Install dependencies"
 	@echo "  shell            - Open a shell in the virtual environment"
+	@echo "  test             - Run unit tests and show coverage"
 
 proto:
 	@echo "Regenerating protobuf files..."
@@ -35,3 +36,6 @@ format:
 
 shell:
 	uv run zsh
+
+test:
+	uv run pytest --cov=src tests/

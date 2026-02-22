@@ -75,7 +75,11 @@ class Microphone(SoundInput):
         Args:
             indata (bytes): The audio data chunk.
         """
-        if not self._loop or self._input_queue.full():
+        if not self._loop:
+            return (None, pyaudio.paContinue)
+
+        if self._input_queue.full():
+            LOGGER.warning('Input audio queue is full, dropping audio chunk.')
             return (None, pyaudio.paContinue)
 
         with contextlib.suppress(asyncio.QueueFull):
