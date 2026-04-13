@@ -1,0 +1,62 @@
+name: Tests
+
+on:
+  push:
+    branches: [ ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install portaudio opus
+        sudo mkdir -p /usr/local/lib
+        sudo cp $(brew --prefix opus)/lib/libopus.* /usr/local/lib/
+
+    - name: Cache vcpkg (Windows)
+      if: runner.os == 'Windows'
+      id: cache-vcpkg
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.VCPKG_INSTALLATION_ROOT }}\installed
+        key: ${{ runner.os }}-vcpkg-portaudio-opus-v1
+
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
+      run: |
+        vcpkg install portaudio:x64-windows opus:x64-windows
+
+    - name: Setup Windows Build Environment
+      if: runner.os == 'Windows'
+      run: |
+        echo "VCPKG_PATH=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+        echo "INCLUDE=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include;$env:INCLUDE" >> $env:GITHUB_ENV
+        echo "LIB=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
+        echo "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin" >> $env:GITHUB_PATH
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.14
+
+    - name: Install Python dependencies
+      run: uv sync
+
+    - name: Run tests
+      run: uv run pytest --cov=src tests/

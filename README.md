@@ -25,6 +25,9 @@ Live audio is transcribed, translated, converted back to speech, and streamed to
   <a href="https://github.com/RaHummel/live-translation/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/RaHummel/live-translation.svg?style=flat-square" alt="License">
   </a>
+  <a href="https://github.com/RaHummel/live-translation/actions/workflows/tests.yml">
+    <img src="https://github.com/RaHummel/live-translation/actions/workflows/tests.yml/badge.svg" alt="Tests">
+  </a>
 </p>
 
 </div>
