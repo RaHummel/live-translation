@@ -1,37 +1,35 @@
 import datetime
 import logging
+from typing import Dict
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
-    QLayout,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from config.model.config_models import TranslatorSettings
-from gui_elements.text_edit_logger import QTextEditLogger
+from config.model.config_models import AWSSettings, GoogleSettings, TranslatorSettings
+from gui_elements.base_translator_widget import clear_layout
 
 LOGGER = logging.getLogger(__name__)
 
 
 class LiveOutputWidget(QWidget):
-    def __init__(self, translator_settings: TranslatorSettings, text_edit_logger: QTextEditLogger, parent=None):
+    def __init__(self, translator_settings: TranslatorSettings, parent=None):
         super().__init__(parent)
         self._translator_settings = translator_settings
-        self.target_transcript_widgets = {}
-        self.target_transcript_labels = {}
-        self.target_transcript_checkboxes = {}
-        self.target_transcript_layouts = {}
+        self.target_transcript_widgets: Dict[str, QTextEdit] = {}
+        self.target_transcript_checkboxes: Dict[str, QCheckBox] = {}
+        self.target_transcript_layouts: Dict[str, QVBoxLayout] = {}
 
         self._setup_ui()
-        self._setup_logger(text_edit_logger)
 
     def update_settings(self, translator_settings: TranslatorSettings):
         """
@@ -39,28 +37,32 @@ class LiveOutputWidget(QWidget):
         Args:
             translator_settings (TranslatorSettings): User specific translator settings.
         """
-
-        self.show_source_transcript_checkbox.setChecked(translator_settings.aws_settings.show_source_transcript)
-
-        for lang, lang_setting in translator_settings.aws_settings.target_languages.items():
-            is_checked = lang_setting.show_transcript
-            self.target_transcript_checkboxes[lang].setChecked(is_checked)
-
         self._translator_settings = translator_settings
+        provider_settings = self._get_active_provider_settings(translator_settings)
+        self.show_source_transcript_checkbox.setChecked(provider_settings.show_source_transcript)
+
+        desired_target_states = {
+            lang: lang_setting.show_transcript for lang, lang_setting in provider_settings.target_languages.items()
+        }
+
+        for lang in list(self.target_transcript_widgets):
+            if lang not in desired_target_states:
+                self.update_target_transcript_outputs(lang, False)
+
+        for lang, is_checked in desired_target_states.items():
+            self.update_target_transcript_outputs(lang, is_checked)
 
     def _setup_ui(self):
         live_outputs_layout = QVBoxLayout(self)
         live_outputs_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.live_output_tabs = QTabWidget(tabPosition=QTabWidget.TabPosition.North)
-        self.live_output_tabs.tabBar().setUsesScrollButtons(False)
-
-        self.transcripts_tab_content = QWidget()
-        self.transcripts_tab_layout = QVBoxLayout(self.transcripts_tab_content)
+        transcripts_content = QWidget()
+        self.transcripts_tab_layout = QVBoxLayout(transcripts_content)
 
         self.source_transcript_checkbox_layout = QHBoxLayout()
         self.show_source_transcript_checkbox = QCheckBox('Show Source Language Transcript')
-        self.show_source_transcript_checkbox.setChecked(self._translator_settings.aws_settings.show_source_transcript)
+        provider_settings = self._get_active_provider_settings(self._translator_settings)
+        self.show_source_transcript_checkbox.setChecked(provider_settings.show_source_transcript)
         self.show_source_transcript_checkbox.setToolTip('Toggle visibility of the source language transcript.')
         self.show_source_transcript_checkbox.setStatusTip('Enable or disable the source language transcript output.')
         self.show_source_transcript_checkbox.toggled.connect(self._toggle_source_transcript_visibility)
@@ -87,22 +89,17 @@ class LiveOutputWidget(QWidget):
         self.target_transcripts_scroll_area.setWidget(self.target_transcripts_dynamic_content)
         self.transcripts_tab_layout.addWidget(self.target_transcripts_scroll_area, 1)
 
-        for lang_code, lang_setting in self._translator_settings.aws_settings.target_languages.items():
+        for lang_code, lang_setting in provider_settings.target_languages.items():
             self.update_target_transcript_outputs(lang_code, lang_setting.show_transcript)
 
-        self.logs_tab_content = QWidget()
-        logs_tab_layout = QVBoxLayout(self.logs_tab_content)
-        self.log_output = QTextEdit(readOnly=True)
-        self.log_output.setPlaceholderText('Application logs will appear here...')
-        self.log_output.setStatusTip('Change log level in the settings to see more details.')
-        logs_tab_layout.addWidget(self.log_output, 2)
-
-        self.live_output_tabs.addTab(self.transcripts_tab_content, 'Transcripts')
-        self.live_output_tabs.addTab(self.logs_tab_content, 'Logs')
-
-        live_outputs_layout.addWidget(self.live_output_tabs, 1)
+        live_outputs_layout.addWidget(transcripts_content, 1)
 
         self.setLayout(live_outputs_layout)
+
+    def _get_active_provider_settings(self, translator_settings: TranslatorSettings) -> AWSSettings | GoogleSettings:
+        if translator_settings.translator == 'google':
+            return translator_settings.google_settings
+        return translator_settings.aws_settings
 
     def _toggle_source_transcript_visibility(self, checked: bool):
         self.source_transcript_output.setVisible(checked)
@@ -148,21 +145,27 @@ class LiveOutputWidget(QWidget):
                 )
         else:
             if lang_code in self.target_transcript_widgets:
-                text_edit = self.target_transcript_widgets.get(lang_code)
+                text_edit = self.target_transcript_widgets[lang_code]
                 text_edit.clear()
 
                 lang_display_layout = self.target_transcript_layouts.pop(lang_code)
 
                 while lang_display_layout.count():
                     item = lang_display_layout.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                    elif item.layout():
-                        self._clear_layout(item.layout())
-                        item.layout().deleteLater()
+                    if item is None:
+                        continue
+
+                    widget = item.widget()
+                    if widget is not None:
+                        widget.deleteLater()
+                        continue
+
+                    child_layout = item.layout()
+                    if child_layout is not None:
+                        clear_layout(child_layout)
+                        child_layout.deleteLater()
                 lang_display_layout.deleteLater()
 
-                self.target_transcript_labels.pop(lang_code, None)
                 self.target_transcript_checkboxes.pop(lang_code, None)
                 self.target_transcript_widgets.pop(lang_code, None)
 
@@ -185,11 +188,7 @@ class LiveOutputWidget(QWidget):
         timestamp = datetime.datetime.now().strftime('%H:%M:%S')
         self.source_transcript_output.append(f'[{timestamp}] {text}')
         self._trim_textedit_lines(self.source_transcript_output)
-
-        # Automatically scroll to the bottom of the source transcript output
-        self.source_transcript_output.verticalScrollBar().setValue(
-            self.source_transcript_output.verticalScrollBar().maximum()
-        )
+        self._scroll_to_latest_entry(self.source_transcript_output)
 
     def update_target_transcription_field(self, lang_code: str, text: str):
         """
@@ -214,8 +213,15 @@ class LiveOutputWidget(QWidget):
         text_edit = self.target_transcript_widgets[lang_code]
         text_edit.append(f'[{timestamp}] {text}')
         self._trim_textedit_lines(text_edit)
-        # Automatically scroll to the bottom of the target transcript output
-        text_edit.verticalScrollBar().setValue(text_edit.verticalScrollBar().maximum())
+        self._scroll_to_latest_entry(text_edit)
+
+    @staticmethod
+    def _scroll_to_latest_entry(text_edit: QTextEdit) -> None:
+        """Ensure the newest appended line is visible in QTextEdit."""
+        cursor = text_edit.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        text_edit.setTextCursor(cursor)
+        text_edit.ensureCursorVisible()
 
     @staticmethod
     def _trim_textedit_lines(text_edit: QTextEdit, max_lines: int = 500, remove_batch: int = 20):
@@ -230,29 +236,6 @@ class LiveOutputWidget(QWidget):
                 cursor.select(cursor.SelectionType.LineUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()
-
-    def _clear_layout(self, layout: QLayout):
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                self._clear_layout(item.layout())
-                item.layout().deleteLater()
-
-    def _setup_logger(self, text_edit_logger: QTextEditLogger):
-        text_edit_logger.connect_slot(self.append_log)
-
-    def append_log(self, text: str):
-        """
-        Appends a log message to the log_output QTextEdit.
-        This method is now a slot connected to the QTextEditLogger's signal.
-        """
-        self.log_output.append(text)
-        self._trim_textedit_lines(self.log_output)
-
-        # Automatically scroll to the bottom of the log output
-        self.log_output.verticalScrollBar().setValue(self.log_output.verticalScrollBar().maximum())
 
     def append_source_transcript(self, text: str):
         self.source_transcript_output.append(text)

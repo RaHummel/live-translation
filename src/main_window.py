@@ -1,8 +1,8 @@
 import logging
 import os
 
-from PySide6.QtCore import QFile, QSize, Qt, QTextStream, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtCore import QFile, QSize, Qt, QTextStream, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from config.config_manager import ConfigManager
 from config.model.config_models import (
     AWSSettings,
+    GoogleSettings,
     InputSettings,
     LanguageSettings,
     MumbleSettings,
@@ -33,9 +34,7 @@ from controllers.translation_controller import TranslationController
 from gui_elements.audio_input_widget import AudioInputWidget
 from gui_elements.audio_output_widget import AudioOutputWidget
 from gui_elements.live_output_widget import LiveOutputWidget
-from gui_elements.text_edit_logger import QTextEditLogger
 from gui_elements.translator_widget import TranslatorWidget
-from translators.translation_callbacks import TranslationCallbacks
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +51,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Live Translation')
         self.setMinimumSize(1200, 850)
         self._config_manager = config_manager
-        self._text_edit_logger = self._get_edit_logger()
 
         # Actions are created here and reused
         self._create_actions()
@@ -62,17 +60,13 @@ class MainWindow(QMainWindow):
         self._create_status_bar()
 
         # Initialize the controller
-        self._controller = TranslationController(
-            callbacks=TranslationCallbacks(
-                update_source_field=self.live_output_dashboard.update_source_transcription_field,
-                update_target_field=self.live_output_dashboard.update_target_transcription_field,
-            )
-        )
+        self._controller = TranslationController()
 
         self._connect_signals()
 
         # Connect the target transcribe dashboard to the translator tab widget
         self.translator_tab_widget.add_target_lang_signal(self.live_output_dashboard.update_target_transcript_outputs)
+        self.translator_tab_widget.add_provider_changed_signal(self._handle_provider_changed)
 
         # Apply initial theme
         self._current_theme = getattr(self._config_manager.config, 'theme', 'light')
@@ -93,6 +87,12 @@ class MainWindow(QMainWindow):
         self._controller.status_label_signal.connect(self.status_label_signal.emit)
         self._controller.start_button_enabled.connect(self.start_button_signal.emit)
         self._controller.stop_button_enabled.connect(self.stop_button_signal.emit)
+        self._controller.update_source_field_signal.connect(
+            self.live_output_dashboard.update_source_transcription_field
+        )
+        self._controller.update_target_field_signal.connect(
+            self.live_output_dashboard.update_target_transcription_field
+        )
 
         LOGGER.debug('All signals connected.')
 
@@ -126,6 +126,10 @@ class MainWindow(QMainWindow):
         self.toggle_theme_action.setStatusTip('Switch between Dark and Light mode')
         self.toggle_theme_action.triggered.connect(self._toggle_theme)
 
+        self.open_log_folder_action = QAction('Open Log Folder', self)
+        self.open_log_folder_action.setStatusTip('Open the folder that contains application log files')
+        self.open_log_folder_action.triggered.connect(self._open_log_folder)
+
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('&File')
@@ -133,6 +137,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.save_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
+
+        options_menu = menu_bar.addMenu('&Options')
+        options_menu.addAction(self.open_log_folder_action)
 
         view_menu = menu_bar.addMenu('&View')
         view_menu.addAction(self.toggle_theme_action)
@@ -166,30 +173,30 @@ class MainWindow(QMainWindow):
         self.tabs_config.addTab(self.audio_tab_widget, 'Audio')
         self.tabs_config.addTab(self.translator_tab_widget, 'Translator')
         self.tabs_config.addTab(self.output_tab_widget, 'Output')
-        content_layout.addWidget(self.tabs_config, 0.8)
+        content_layout.addWidget(self.tabs_config, 1)
 
         separator_line_v = QFrame(frameShape=QFrame.Shape.VLine, frameShadow=QFrame.Shadow.Sunken)
         content_layout.addWidget(separator_line_v)
 
-        self.live_output_dashboard = LiveOutputWidget(config.translator_settings, self._text_edit_logger)
+        self.live_output_dashboard = LiveOutputWidget(config.translator_settings)
         content_layout.addWidget(self.live_output_dashboard, 1)
         main_layout.addLayout(content_layout, 1)
-
-    def _get_edit_logger(self) -> QTextEditLogger:
-        text_edit_logger = QTextEditLogger(self)
-        logging.getLogger().addHandler(text_edit_logger)
-
-        # Remove any existing StreamHandlers to avoid duplicate logs
-        for handler in logging.getLogger().handlers:
-            if isinstance(handler, logging.StreamHandler):
-                logging.getLogger().removeHandler(handler)
-
-        return text_edit_logger
 
     def _create_status_bar(self):
         self._statusBar = QStatusBar()
         self.setStatusBar(self._statusBar)
         self._statusBar.showMessage('Application Ready', 3000)
+
+    def _get_log_directory(self) -> str:
+        log_dir = ConfigManager.get_app_config_dir() / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return str(log_dir)
+
+    def _open_log_folder(self) -> None:
+        log_dir = self._get_log_directory()
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(log_dir)):
+            LOGGER.error(f'Could not open log directory: {log_dir}')
+            QMessageBox.warning(self, 'Open Log Folder', f'Could not open log folder:\n{log_dir}')
 
     def _load_config(self):
         file_path, _ = QFileDialog.getOpenFileName(self, 'Select configuration file', '', 'JSON Files (*.json)')
@@ -268,22 +275,50 @@ class MainWindow(QMainWindow):
                     language_channel_mapping=self.output_tab_widget.mumble_widget.get_current_mappings(),
                 ),
             )
+
             aws_widget = self.translator_tab_widget.aws_tab_widget
-            target_languages = {
-                lang: LanguageSettings(
-                    voice_id=aws_widget.aws_voice_selectors[lang].currentText(),
-                    show_transcript=self.live_output_dashboard.target_transcript_checkboxes[lang].isChecked(),
+            target_settings_dicts = aws_widget.get_target_language_settings()
+            aws_target_languages = {}
+            for lang, settings_dict in target_settings_dicts.items():
+                aws_target_languages[lang] = LanguageSettings(
+                    voice_id=settings_dict['voice_id'],
+                    engine=settings_dict['engine'],
+                    show_transcript=(
+                        self.live_output_dashboard.target_transcript_checkboxes[lang].isChecked()
+                        if lang in self.live_output_dashboard.target_transcript_checkboxes
+                        else False
+                    ),
                 )
-                for lang, cb in aws_widget.aws_target_lang_checkboxes.items()
-                if cb.isChecked()
-            }
+
+            google_widget = self.translator_tab_widget.google_tab_widget
+            google_target_settings_dicts = google_widget.get_target_language_settings()
+            google_target_languages = {}
+            for lang, settings_dict in google_target_settings_dicts.items():
+                google_target_languages[lang] = LanguageSettings(
+                    voice_id=settings_dict['voice_id'],
+                    engine=settings_dict['engine'],
+                    show_transcript=(
+                        self.live_output_dashboard.target_transcript_checkboxes[lang].isChecked()
+                        if lang in self.live_output_dashboard.target_transcript_checkboxes
+                        else False
+                    ),
+                )
+
             translator_settings = TranslatorSettings(
                 translator=self.translator_tab_widget.translator_select.currentText(),
                 aws_settings=AWSSettings(
                     region=self.translator_tab_widget.aws_tab_widget.aws_region_select.currentData(),
                     source_language=self.translator_tab_widget.aws_tab_widget.aws_source_lang.currentText(),
                     show_source_transcript=self.live_output_dashboard.show_source_transcript_checkbox.isChecked(),
-                    target_languages=target_languages,
+                    target_languages=aws_target_languages,
+                ),
+                google_settings=GoogleSettings(
+                    credentials_path=self.translator_tab_widget.google_tab_widget.get_credentials_path(),
+                    source_language=self.translator_tab_widget.google_tab_widget.google_source_lang.currentText(),
+                    show_source_transcript=self.live_output_dashboard.show_source_transcript_checkbox.isChecked(),
+                    target_languages=google_target_languages,
+                    endpointing_sensitivity=self.translator_tab_widget.google_tab_widget.get_endpointing_sensitivity(),
+                    region=self.translator_tab_widget.google_tab_widget.get_region(),
                 ),
             )
             return UserConfig(
@@ -295,6 +330,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             LOGGER.error('Error while collecting config data from GUI widgets.', exc_info=True)
             raise ValueError('Invalid configuration data in GUI. Please check all fields.') from e
+
+    def _handle_provider_changed(self, _provider: str) -> None:
+        # Re-apply provider-specific transcript visibility from TranslatorSettings when switching tabs.
+        self.live_output_dashboard.update_settings(self.translator_tab_widget.get_translator_settings())
 
     def _handle_start_button(self):
         """Delegates service startup to the controller."""
@@ -335,7 +374,11 @@ class MainWindow(QMainWindow):
             style_dir_abs = os.path.dirname(os.path.abspath(style_file)).replace('\\', '/')
             style_content = style_content.replace('%STYLE_DIR%', style_dir_abs)
 
-            QApplication.instance().setStyleSheet(style_content)
+            app = QApplication.instance()
+            if isinstance(app, QApplication):
+                app.setStyleSheet(style_content)
+            else:
+                LOGGER.warning('No QApplication instance available while applying theme stylesheet.')
             self._current_theme = theme_name
             self._update_icons()
             LOGGER.info(f'Switching to {theme_name} theme. Loaded from {style_file}')

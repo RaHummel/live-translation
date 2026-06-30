@@ -2,12 +2,11 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from botocore.response import StreamingBody
 from pymumble_py3 import Mumble
 from pymumble_py3.constants import PYMUMBLE_CONN_STATE_CONNECTED
 
 from config.model.config_models import OutputSettings
-from translation import SoundOutput
+from translation import AudioReadableStream, SoundOutput
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,11 +61,11 @@ class MumbleClient(SoundOutput):
         """Disconnects from the Mumble server"""
         self._mumble.stop()
 
-    async def play(self, output_bytes: StreamingBody):
+    async def play(self, output_bytes: AudioReadableStream):
         """Streams audio data asynchronously directly from output_bytes to a Mumble server.
 
         Args:
-            output_bytes (StreamingBody): The audio stream to play.
+            output_bytes (AudioReadableStream): The audio stream to play.
         """
         LOGGER.debug('Streaming to Mumble started...')
 

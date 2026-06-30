@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 
@@ -36,6 +36,7 @@ class OutputSettings:
 class LanguageSettings:
     voice_id: str
     show_transcript: bool
+    engine: str = 'standard'
 
 
 @dataclass
@@ -47,9 +48,20 @@ class AWSSettings:
 
 
 @dataclass
+class GoogleSettings:
+    credentials_path: str
+    source_language: str
+    show_source_transcript: bool
+    target_languages: Dict[str, LanguageSettings]
+    endpointing_sensitivity: str = 'short'
+    region: str = 'europe-west3'
+
+
+@dataclass
 class TranslatorSettings:
     translator: str
-    aws_settings: AWSSettings
+    aws_settings: Optional[AWSSettings] = field(default=None)
+    google_settings: Optional[GoogleSettings] = field(default=None)
 
 
 @dataclass

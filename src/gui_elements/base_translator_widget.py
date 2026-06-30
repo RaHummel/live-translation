@@ -1,0 +1,286 @@
+import logging
+from abc import abstractmethod
+from typing import Dict, List
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from config.model.config_models import LanguageSettings
+from constants import TRANSLATOR
+
+LOGGER = logging.getLogger(__name__)
+
+
+class BaseTranslatorProviderWidget(QWidget):
+    """
+    Abstract base for provider-specific translator widgets (AWS, Google, etc.).
+    Handles the shared target-language grid, engine/voice selection, and state management.
+    Subclasses implement provider-specific connection UI and settings hooks.
+    """
+
+    target_lang_toggled = Signal(str, bool)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.target_lang_checkboxes: Dict[str, QCheckBox] = {}
+        self.voice_selectors: Dict[str, QComboBox] = {}
+        self.language_engines_state: Dict[str, str] = {}
+        self.language_voices_state: Dict[str, str] = {}
+
+    @abstractmethod
+    def _get_provider_key(self) -> str:
+        """Return the key in TRANSLATOR dict, e.g. 'aws' or 'google'."""
+
+    @abstractmethod
+    def _get_engine_names(self) -> List[str]:
+        """Return available engine names, e.g. ['standard', 'neural']."""
+
+    @abstractmethod
+    def _build_connection_ui(self, parent_layout: QVBoxLayout) -> None:
+        """Build provider-specific connection/credential widgets into *parent_layout*."""
+
+    @abstractmethod
+    def _get_source_language(self) -> str:
+        """Return currently selected source language text."""
+
+    @abstractmethod
+    def _get_source_language_combo(self) -> QComboBox:
+        """Return the source language QComboBox instance."""
+
+    def _build_extra_source_options(self, layout: QHBoxLayout) -> None:
+        """Override to add widgets next to the source language / engine combos."""
+
+    def _build_extra_language_options(self, layout: QFormLayout) -> None:
+        """Override to add extra rows below the source language form (e.g. endpointing)."""
+
+    def _setup_language_ui(self, parent_layout: QVBoxLayout) -> None:
+        """Builds the shared Language Settings group (source + target grid)."""
+        language_settings_group = QGroupBox('Language Settings')
+        language_settings_layout = QVBoxLayout(language_settings_group)
+
+        source_lang_form_layout = QFormLayout(fieldGrowthPolicy=QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        source_and_engine_layout = QHBoxLayout()
+        source_and_engine_layout.addWidget(self._get_source_language_combo())
+
+        engine_label = QLabel('Engine:')
+        source_and_engine_layout.addWidget(engine_label)
+
+        self.engine_select = QComboBox()
+        self.engine_select.addItems(self._get_engine_names())
+        self.engine_select.setCurrentText(self._get_engine_names()[0])
+        self.engine_select.currentTextChanged.connect(self._on_engine_changed)
+        source_and_engine_layout.addWidget(self.engine_select)
+
+        self._build_extra_source_options(source_and_engine_layout)
+
+        source_lang_form_layout.addRow('Source Language:', source_and_engine_layout)
+        self._build_extra_language_options(source_lang_form_layout)
+        language_settings_layout.addLayout(source_lang_form_layout)
+
+        target_lang_label = QLabel('Translation Target Languages:')
+        language_settings_layout.addWidget(target_lang_label)
+
+        # Target grid in scroll area
+        self.target_scroll_area = QScrollArea(widgetResizable=True)
+        self.target_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.target_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.scroll_content_widget = QWidget()
+        self.target_grid_layout = QGridLayout(self.scroll_content_widget)
+        self.target_grid_layout.setContentsMargins(5, 5, 5, 5)
+        self.target_grid_layout.setSpacing(10)
+        self.target_grid_layout.setColumnStretch(0, 1)
+        self.target_grid_layout.setColumnStretch(1, 1)
+
+        self.target_scroll_area.setWidget(self.scroll_content_widget)
+        language_settings_layout.addWidget(self.target_scroll_area)
+        parent_layout.addWidget(language_settings_group)
+
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+    def _init_target_state(self, target_languages: Dict[str, LanguageSettings]) -> None:
+        """Populate internal state dicts from settings and build the initial grid."""
+        for lang, lang_setting in target_languages.items():
+            self.language_engines_state[lang] = lang_setting.engine
+            self.language_voices_state[lang] = lang_setting.voice_id
+
+        self._build_target_grid(self.engine_select.currentText(), self._get_source_language())
+
+    def _apply_target_language_state(self, target_languages: Dict[str, LanguageSettings]) -> None:
+        """Re-apply target language state from updated settings."""
+        self.language_engines_state.clear()
+        self.language_voices_state.clear()
+
+        for lang, lang_setting in target_languages.items():
+            self.language_engines_state[lang] = lang_setting.engine
+            self.language_voices_state[lang] = lang_setting.voice_id
+
+        if hasattr(self, 'engine_select'):
+            self._build_target_grid(self.engine_select.currentText(), self._get_source_language())
+
+    def _on_engine_changed(self, new_engine: str) -> None:
+        self._build_target_grid(new_engine, self._get_source_language())
+
+    def _update_target_languages(self, selected_source: str) -> None:
+        self._build_target_grid(self.engine_select.currentText(), selected_source)
+
+    def _build_target_grid(self, selected_engine: str, selected_source: str) -> None:
+        clear_layout(self.target_grid_layout)
+        self.target_lang_checkboxes.clear()
+        self.voice_selectors.clear()
+
+        provider_key = self._get_provider_key()
+        if selected_engine not in TRANSLATOR[provider_key]:
+            return
+
+        languages_for_engine = sorted(TRANSLATOR[provider_key][selected_engine].keys())
+
+        row = 0
+        col = 0
+        num_cols = 2
+
+        for lang in languages_for_engine:
+            lang_selection_layout = QVBoxLayout()
+            lang_selection_layout.setContentsMargins(0, 0, 0, 0)
+
+            checkbox = QCheckBox(lang)
+
+            assigned_engine = self.language_engines_state.get(lang)
+            is_checked = assigned_engine is not None
+            checkbox.blockSignals(True)
+            checkbox.setChecked(is_checked)
+            checkbox.blockSignals(False)
+
+            is_source = lang == selected_source
+            different_engine = is_checked and assigned_engine != selected_engine
+            checkbox.setEnabled(not is_source and not different_engine)
+
+            if different_engine:
+                checkbox.setText(f'{lang} (in {assigned_engine})')
+                font = checkbox.font()
+                font.setStrikeOut(True)
+                checkbox.setFont(font)
+                checkbox.setToolTip(f"Already selected in '{assigned_engine}' engine.")
+            elif is_source:
+                checkbox.setToolTip('Cannot select source language as target.')
+            else:
+                checkbox.setToolTip(f'Enable translation to {lang}.')
+
+            checkbox.toggled.connect(lambda state, la=lang, eng=selected_engine: self._on_lang_toggled(la, state, eng))
+
+            voice_selector = QComboBox()
+            voices = TRANSLATOR[provider_key][selected_engine][lang].get('voice_ids', [])
+            voice_selector.addItems(voices)
+
+            if is_checked and not different_engine:
+                voice_selector.setEnabled(True)
+                voice_id = self.language_voices_state.get(lang)
+                if voice_id is not None and voice_id in voices:
+                    voice_selector.setCurrentText(voice_id)
+            else:
+                voice_selector.setEnabled(False)
+
+            voice_selector.currentTextChanged.connect(lambda text, la=lang: self._on_voice_changed(la, text))
+            checkbox.toggled.connect(
+                lambda state, vs=voice_selector, la=lang, eng=selected_engine: self._toggle_voice_selector(
+                    state, vs, la, eng
+                )
+            )
+
+            lang_selection_layout.addWidget(checkbox)
+            lang_selection_layout.addWidget(voice_selector)
+
+            self.target_grid_layout.addLayout(lang_selection_layout, row, col)
+
+            col += 1
+            if col >= num_cols:
+                col = 0
+                row += 1
+
+            self.target_lang_checkboxes[lang] = checkbox
+            self.voice_selectors[lang] = voice_selector
+
+        if col > 0:
+            self.target_grid_layout.addItem(
+                QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum),
+                row,
+                col,
+            )
+        self.target_grid_layout.addItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding),
+            row + 1,
+            0,
+            1,
+            num_cols,
+        )
+
+    def _on_lang_toggled(self, lang: str, state: bool, engine: str) -> None:
+        if state:
+            self.language_engines_state[lang] = engine
+            self.language_voices_state[lang] = self.voice_selectors[lang].currentText()
+        else:
+            self.language_engines_state.pop(lang, None)
+            self.language_voices_state.pop(lang, None)
+
+        self.target_lang_toggled.emit(lang, state)
+
+    def _on_voice_changed(self, lang: str, text: str) -> None:
+        if lang in self.language_engines_state:
+            self.language_voices_state[lang] = text
+
+    def _toggle_voice_selector(self, state: bool, voice_selector: QComboBox, lang: str, engine: str) -> None:
+        provider_key = self._get_provider_key()
+        has_voices = TRANSLATOR[provider_key][engine][lang].get('voice_ids', [])
+        voice_selector.setEnabled(state and (lang != self._get_source_language()) and bool(has_voices))
+
+    def get_target_language_settings(self) -> Dict[str, dict]:
+        """Return current target language settings as {lang: {'voice_id': ..., 'engine': ...}}."""
+        for lang, cb in self.target_lang_checkboxes.items():
+            if cb.isChecked() and cb.isEnabled():
+                self.language_voices_state[lang] = self.voice_selectors[lang].currentText()
+
+        settings: Dict[str, dict] = {}
+        for lang, engine in self.language_engines_state.items():
+            settings[lang] = {
+                'voice_id': self.language_voices_state.get(lang, ''),
+                'engine': engine,
+            }
+        return settings
+
+
+# ------------------------------------------------------------------
+# Shared utility
+# ------------------------------------------------------------------
+
+
+def clear_layout(layout: QLayout) -> None:
+    """Recursively remove all items from a layout."""
+    while layout.count():
+        item = layout.takeAt(0)
+        if item is None:
+            continue
+
+        widget = item.widget()
+        if widget is not None:
+            widget.deleteLater()
+            continue
+
+        child_layout = item.layout()
+        if child_layout is not None:
+            clear_layout(child_layout)
+            child_layout.deleteLater()

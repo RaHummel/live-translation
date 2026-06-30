@@ -34,7 +34,6 @@ class SoundInputStub(SoundInput):
 class TranslatorStub(Translator):
     def __init__(self):
         self.start_translation_called = False
-        self.stop_translation_called = False
 
     async def start_translation(
         self,
@@ -44,9 +43,6 @@ class TranslatorStub(Translator):
     ) -> None:
         self.start_translation_called = True
         await shutdown_event.wait()
-
-    def stop_translation(self):
-        self.stop_translation_called = True
 
 
 class TranslationStub:

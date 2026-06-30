@@ -9,7 +9,7 @@ param(
 $pyprojectContent = Get-Content "pyproject.toml" -Raw
 if ($pyprojectContent -match 'version = "([^"]+)"') {
     $VERSION = $matches[1]
-} else {    
+} else {
     Write-Error "Could not find version in pyproject.toml"
     exit 1
 }
@@ -52,11 +52,12 @@ if (-not [string]::IsNullOrEmpty($env:VCPKG_PATH)) {
 }
 
 if (-not (Test-Path $vcpkgPath)) {
-    Write-Host "vcpkg not found at $vcpkgPath — cloning to $defaultVcpkg..." -ForegroundColor Yellow
+    Write-Host "vcpkg not found at $vcpkgPath - cloning to $defaultVcpkg..." -ForegroundColor Yellow
     git clone https://github.com/microsoft/vcpkg.git $defaultVcpkg
     if (-not (Test-Path "$defaultVcpkg/bootstrap-vcpkg.bat")) {
         Write-Warning "Failed to clone vcpkg. Please install vcpkg manually and re-run this script."
     } else {
+        Write-Host "Found bootstrap script at: $defaultVcpkg/bootstrap-vcpkg.bat" -ForegroundColor Green
         Push-Location $defaultVcpkg
         & .\bootstrap-vcpkg.bat
         Pop-Location
@@ -74,7 +75,7 @@ if (Test-Path "$vcpkgPath\vcpkg.exe") {
     & "$vcpkgPath\vcpkg.exe" install portaudio:x64-windows
     & "$vcpkgPath\vcpkg.exe" install opus:x64-windows
 } else {
-    Write-Warning "vcpkg.exe not found at $vcpkgPath. Skipping native library install — PyAudio/Opus build may fail."
+    Write-Warning "vcpkg.exe not found at $vcpkgPath. Skipping native library install - PyAudio/Opus build may fail."
 }
 
 
@@ -121,10 +122,10 @@ if (Test-Path $vcpkgBin) {
         }
         Write-Host "Copied $($dlls.Count) DLL(s) into dist/$APP_NAME/_internal/" -ForegroundColor Green
     } else {
-        Write-Warning "No DLLs found in $vcpkgBin to copy. If you rely on PortAudio/Opus, ensure vcpkg installed them."    
+        Write-Warning "No DLLs found in $vcpkgBin to copy. If you rely on PortAudio/Opus, ensure vcpkg installed them."
     }
 } else {
-    Write-Warning "vcpkg bin path not found at $vcpkgBin. Native runtime DLLs won't be copied into the bundle."
+    Write-Warning "vcpkg bin path not found at $vcpkgBin. Native runtime DLLs wont be copied into the bundle."
 }
 
 # Create NSIS installer
@@ -155,10 +156,10 @@ if (-not $SkipNSIS) {
     } else {
         # Create installers directory
         New-Item -ItemType Directory -Force -Path "dist/installers" | Out-Null
-        
+
         # Run NSIS to create installer with version and app name parameters
         & $nsisPath "/DAPP_NAME=$APP_NAME" "/DAPP_VERSION=$VERSION" "installer\windows\installer.nsi"
-        
+
         if (Test-Path "dist/installers/$EXE_NAME") {
             Write-Host "Installer created successfully!" -ForegroundColor Green
             Write-Host ""
@@ -168,7 +169,7 @@ if (-not $SkipNSIS) {
         }
     }
 } else {
-    Write-Host "Skipping NSIS installer creation (--SkipNSIS flag set)" -ForegroundColor Yellow
+    Write-Host "Skipping NSIS installer creation" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -184,6 +185,6 @@ if (-not $SkipNSIS -and (Test-Path "dist/installers/$EXE_NAME")) {
 
 Write-Host ""
 Write-Host "To test the application:" -ForegroundColor Yellow
-Write-Host "  1. Navigate to: dist/$APP_NAME/$EXE_NAME" -ForegroundColor White
-Write-Host "  2. Run: ./${EXE_NAME}" -ForegroundColor White
+Write-Host " 1. Navigate to: dist/$APP_NAME/$EXE_NAME" -ForegroundColor White
+Write-Host " 2. Run: ./${EXE_NAME}" -ForegroundColor White
 Write-Host ""

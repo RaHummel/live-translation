@@ -11,15 +11,13 @@ from config.model.config_models import (
     UserConfig,
 )
 from controllers.translation_controller import TranslationController
-from translators.translation_callbacks import TranslationCallbacks
 
 from .stubs import SoundInputStub, SoundOutputStub, TranslatorStub
 
 
 class TestTranslationController(unittest.TestCase):
     def setUp(self):
-        self.mock_callbacks = MagicMock(spec=TranslationCallbacks)
-        self.controller = TranslationController(self.mock_callbacks)
+        self.controller = TranslationController()
 
         # Mock signals to verify emissions
         self.controller.status_message_signal = MagicMock()
@@ -34,7 +32,8 @@ class TestTranslationController(unittest.TestCase):
                 'speaker', 16000, 1024, SpeakerSettings('spk', 0), MumbleSettings('localhost', 64738, {})
             ),
             translator_settings=TranslatorSettings(
-                'aws', AWSSettings('us-central-1', 'en-US', True, {'de-DE': MagicMock()})
+                translator='aws',
+                aws_settings=AWSSettings('us-central-1', 'en-US', True, {'de-DE': MagicMock()}),
             ),
         )
 
