@@ -74,6 +74,11 @@ class AudioOutputWidget(QWidget):
         self.speaker_widget = SpeakerWidget(self._output_settings.speaker_settings)
         self.mumble_widget = MumbleWidget(self._output_settings.mumble_settings)
 
+        self._output_widget_map = {
+            'speaker': self.speaker_widget,
+            'mumble': self.mumble_widget,
+        }
+
         self.output_stacked.addWidget(self.speaker_widget)
         self.output_stacked.addWidget(self.mumble_widget)
 
@@ -84,10 +89,9 @@ class AudioOutputWidget(QWidget):
         self.setLayout(main_layout)
 
     def _update_output_fields(self, text: str):
-        if text == 'mumble':
-            self.output_stacked.setCurrentWidget(self.mumble_widget)
-        elif text == 'speaker':
-            self.output_stacked.setCurrentWidget(self.speaker_widget)
+        widget = self._output_widget_map.get(text)
+        if widget:
+            self.output_stacked.setCurrentWidget(widget)
         else:
             LOGGER.error(f'Unknown output method selected: {text}. Defaulting to speaker widget.')
             self.output_stacked.setCurrentWidget(self.speaker_widget)

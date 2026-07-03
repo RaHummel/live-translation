@@ -16,6 +16,64 @@ from translators.translation_callbacks import TranslationCallbacks
 LOGGER = logging.getLogger(__name__)
 
 
+class TranscriptEventHandler(TranscriptResultStreamHandler):
+    """Handles incoming transcript events from AWS Transcribe and triggers translation + TTS."""
+
+    def __init__(
+        self,
+        output_stream,
+        polly_tts: Callable[[str, str], Awaitable[None]],
+        aws_settings: AWSSettings,
+        executor: ThreadPoolExecutor,
+        translate_client,
+        translation_callbacks: Optional[TranslationCallbacks] = None,
+    ):
+        super().__init__(output_stream)
+        self._polly_tts = polly_tts
+        self._aws_settings = aws_settings
+        self._executor = executor
+        self._translate = translate_client
+        self._translation_callbacks = translation_callbacks
+
+    async def handle_transcript_event(self, transcript_event: TranscriptEvent):
+        results: List[Result] = transcript_event.transcript.results
+        if (
+            results
+            and results[0].alternatives
+            and hasattr(results[0], 'is_partial')
+            and not results[0].is_partial
+            and results[0].channel_id == 'ch_0'
+        ):
+            transcript = results[0].alternatives[0].transcript
+            if self._translation_callbacks is not None:
+                self._translation_callbacks.update_source_field(transcript)
+
+            tasks = [
+                asyncio.create_task(self._translate_and_tts(transcript, language))
+                for language in self._aws_settings.target_languages
+            ]
+            await asyncio.gather(*tasks)
+
+    async def _translate_and_tts(self, transcript: str, language: str):
+        """Translates the transcript and performs TTS."""
+        loop = asyncio.get_running_loop()
+        trans_result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._translate.translate_text(
+                Text=transcript,
+                SourceLanguageCode=self._aws_settings.source_language,
+                TargetLanguageCode=language,
+            ),
+        )
+        translated_text = trans_result.get('TranslatedText')
+
+        if self._translation_callbacks is not None:
+            self._translation_callbacks.update_target_field(language, translated_text)
+
+        await self._polly_tts(translated_text, language)
+        LOGGER.debug(f'Translation and TTS processed for language: {language}')
+
+
 class AWSTranslator(Translator):
     def __init__(
         self,
@@ -25,6 +83,7 @@ class AWSTranslator(Translator):
         translation_callbacks: Optional[TranslationCallbacks] = None,
     ):
         """Initializes the AWSTranslator instance.
+
         Args:
             aws_settings (AWSSettings): Configuration settings for AWS services.
             input_settings (InputSettings): Input settings for the translator.
@@ -48,8 +107,8 @@ class AWSTranslator(Translator):
         # self._output: Optional[Callable[]] = None
         self._language_to_output: Dict[str, SoundOutput] = {}
         self._transcription_stream: Optional[StartStreamTranscriptionEventStream] = None
-        self._write_chunks_task = None
-        self._handler_task = None
+        self._write_chunks_task: Optional[asyncio.Task[None]] = None
+        self._handler_task: Optional[asyncio.Task[None]] = None
 
         LOGGER.debug('AWS Translator initialized')
 
@@ -60,7 +119,6 @@ class AWSTranslator(Translator):
         shutdown_event: asyncio.Event,
     ):
         self._language_to_output = language_to_output
-        self._is_running = True
 
         try:
             self._transcription_stream = await self._transcribe_client.start_stream_transcription(
@@ -69,12 +127,12 @@ class AWSTranslator(Translator):
                 media_encoding='pcm',
             )
 
-            handler = self.MyEventHandler(
+            handler = TranscriptEventHandler(
                 self._transcription_stream.output_stream,
                 self._aws_polly_tts,
                 self._aws_settings,
-                self._executor,  # Pass shared executor
-                self._translate,  # Pass shared translate client
+                self._executor,
+                self._translate,
                 self._translation_callbacks,
             )
 
@@ -82,12 +140,11 @@ class AWSTranslator(Translator):
 
             # Create tasks for the two coroutines
             self._write_chunks_task = asyncio.create_task(self._write_chunks(mic_stream))
-            # Wrap handle_events to catch potential cancellation noise
             self._handler_task = asyncio.create_task(handler.handle_events())
+            shutdown_wait_task = asyncio.create_task(shutdown_event.wait())
 
-            # Wait for the shutdown event or tasks to fail
-            done, pending = await asyncio.wait(
-                [self._write_chunks_task, self._handler_task, asyncio.create_task(shutdown_event.wait())],
+            _done, pending = await asyncio.wait(
+                [self._write_chunks_task, self._handler_task, shutdown_wait_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
@@ -105,8 +162,6 @@ class AWSTranslator(Translator):
         except Exception as e:
             LOGGER.error(f'An unexpected error occurred during translation: {e}', exc_info=True)
         finally:
-            self._is_running = False
-            # Gracefully signal the end of the transcription stream
             if self._transcription_stream and self._transcription_stream.input_stream:
                 try:
                     LOGGER.debug('Ending transcription stream gracefully.')
@@ -122,31 +177,25 @@ class AWSTranslator(Translator):
                     LOGGER.debug('Forcing cancellation of handler task.')
                     self._handler_task.cancel()
 
-            # Shutdown executor
             self._executor.shutdown(wait=False)
             LOGGER.debug('AWS Translator shutdown complete.')
 
-    def stop_translation(self):
-        """Stops the translation process and cleans up resources."""
-        # Note: The actual task cancellation is handled by the start_translation's finally block
-        # after the end_stream call, which is more robust.
-        self._is_running = False
-        LOGGER.debug('AWS Translator stop signal received.')
-
     async def _write_chunks(self, mic_stream: AsyncGenerator[bytes, None]):
+        if self._transcription_stream is None:
+            return
         async for chunk in mic_stream:
             await self._transcription_stream.input_stream.send_audio_event(audio_chunk=chunk)
 
-    async def _aws_polly_tts(self, text: str, language: str):  # Make it async
+    async def _aws_polly_tts(self, text: str, language: str):
         """Converts text to speech using AWS Polly and plays it."""
         LOGGER.debug(f"Synthesizing speech for text: '{text[:50]}...' in language: {language}")
 
         try:
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
-                self._executor,  # Use shared executor
+                self._executor,
                 lambda: self._polly.synthesize_speech(
-                    Engine='standard',
+                    Engine=self._aws_settings.target_languages[language].engine,
                     LanguageCode=language,
                     Text=text,
                     VoiceId=self._aws_settings.target_languages[language].voice_id,
@@ -157,67 +206,7 @@ class AWSTranslator(Translator):
 
             output_bytes: StreamingBody = response['AudioStream']
             LOGGER.debug(f'Received audio stream from Polly for language: {language}.')
-
-            # Await the async play method directly
             await self._language_to_output[language].play(output_bytes)
             LOGGER.debug(f'Audio playback initiated for language: {language}.')
         except Exception as e:
             LOGGER.error(f'Error during Polly TTS or playback for language {language}: {e}', exc_info=True)
-
-    class MyEventHandler(TranscriptResultStreamHandler):
-        def __init__(
-            self,
-            output_stream,
-            polly_tts: Callable[[str, str], Awaitable[None]],
-            aws_settings: AWSSettings,
-            executor: ThreadPoolExecutor,
-            translate_client,
-            translation_callbacks: Optional[TranslationCallbacks] = None,
-        ):
-            super().__init__(output_stream)
-            # Removed unused executor
-            self._polly_tts = polly_tts
-            self._aws_settings = aws_settings
-            self._executor = executor
-            self._translation_callbacks = translation_callbacks
-
-            self._translate = translate_client
-
-        async def handle_transcript_event(self, transcript_event: TranscriptEvent):
-            results: List[Result] = transcript_event.transcript.results
-            if (
-                results
-                and results[0].alternatives
-                and hasattr(results[0], 'is_partial')
-                and not results[0].is_partial
-                and results[0].channel_id == 'ch_0'
-            ):
-                transcript = results[0].alternatives[0].transcript
-                # Sends source transcript to the live output widget
-                if self._translation_callbacks is not None:
-                    self._translation_callbacks.update_source_field(transcript)
-
-                tasks = [
-                    asyncio.create_task(self._translate_and_tts(transcript, language))
-                    for language in self._aws_settings.target_languages
-                ]
-                await asyncio.gather(*tasks)
-
-        async def _translate_and_tts(self, transcript, language):
-            """Translates the transcript and performs TTS."""
-            loop = asyncio.get_running_loop()
-            trans_result = await loop.run_in_executor(
-                self._executor,  # Use shared executor
-                lambda: self._translate.translate_text(
-                    Text=transcript,
-                    SourceLanguageCode=self._aws_settings.source_language,
-                    TargetLanguageCode=language,
-                ),
-            )
-            translated_text = trans_result.get('TranslatedText')
-
-            if self._translation_callbacks is not None:
-                self._translation_callbacks.update_target_field(language, translated_text)
-
-            await self._polly_tts(translated_text, language)
-            LOGGER.debug(f'Translation and TTS processed for language: {language}')

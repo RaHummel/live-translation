@@ -48,7 +48,7 @@ Live audio is transcribed, translated, converted back to speech, and streamed to
 - 🌍 **Multiple Target Languages in Parallel**
 - 🔊 **Audio Output via Speaker or Mumble**
 - 🎛 **Configurable Language-to-Channel Mapping**
-- 🔄 **Modular Translator Architecture (AWS supported)**
+- 🔄 **Modular Translator Architecture (AWS, Google supported)**
 - 🖥 **GUI + CLI Mode**
 
 ---
@@ -209,12 +209,15 @@ Launch the installed application normally.
 Currently supported:
 
 - **AWS (Transcribe, Translate, Polly)**
+- **Google (Speech-to-Text, Translate, Text-to-Speech)**
 
 Setup instructions:  
-👉 `docs/AwsSetup.md`
+- AWS: 👉 `docs/AwsSetup.md`
+- Google: 👉 `docs/GoogleSetup.md`
 
 Supported voices and languages:  
-https://docs.aws.amazon.com/polly/latest/dg/available-voices.html
+- AWS Polly: https://docs.aws.amazon.com/polly/latest/dg/available-voices.html
+- Google TTS: https://cloud.google.com/text-to-speech/docs/list-voices-and-types
 
 ---
 
@@ -227,10 +230,7 @@ Detailed instructions:
 
 ## 💰 Cost Notice
 
-This project uses AWS Transcribe, Translate and Polly.  
-Using the service will incur AWS costs depending on usage.
-
-Please review AWS pricing before deploying in production.
+This project uses external cloud services for speech-to-text, translation, and text-to-speech (for example AWS or Google). Using these services may incur usage-based charges, quotas, or other billing implications depending on the provider and your account. Review pricing, quotas, and billing settings for each provider you enable before deploying to production.
 
 ---
 

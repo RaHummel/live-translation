@@ -8,7 +8,7 @@ help:
 	@echo "Available commands:"
 	@echo "  proto            - Regenerate Mumble protobuf files"
 	@echo "  lock             - Update dependencies lock file"
-	@echo "  lint             - Check code style"
+	@echo "  lint             - Check code style and type hints"
 	@echo "  format           - Format code"
 	@echo "  install          - Install dependencies"
 	@echo "  shell            - Open a shell in the virtual environment"
@@ -30,6 +30,7 @@ install:
 
 lint:
 	uv run ruff check
+	uv run mypy src
 
 format:
 	uv run ruff format

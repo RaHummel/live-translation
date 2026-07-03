@@ -1,6 +1,8 @@
 import argparse
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
@@ -12,6 +14,14 @@ from sound_outputs.mumble import MumbleClient
 from sound_outputs.speaker import Speaker
 from translation import Translation
 from translators.aws_translator import AWSTranslator
+from translators.google_translator import GoogleTranslator
+
+
+def get_log_file_path() -> Path:
+    """Get a fixed OS-specific log file path and ensure the log directory exists."""
+    log_dir = ConfigManager.get_app_config_dir() / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / 'live-translation.log'
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -22,11 +32,27 @@ def configure_logging(verbose: bool = False) -> None:
         verbose: If True, set log level to DEBUG. Otherwise, set to INFO.
     """
     log_level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()],
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    file_handler = RotatingFileHandler(
+        get_log_file_path(),
+        maxBytes=1_048_576,
+        backupCount=5,
+        encoding='utf-8',
     )
+    file_handler.setFormatter(formatter)
+
+    # Replace existing handlers to avoid duplicates when app restarts in-process.
+    root_logger.handlers.clear()
+    root_logger.addHandler(stream_handler)
+    root_logger.addHandler(file_handler)
 
     # Reduce verbosity of noisy third-party libraries
     if verbose:
@@ -67,6 +93,17 @@ def run_cli_mode(arguments, usr_config: UserConfig):
 
         translator = AWSTranslator(
             usr_config.translator_settings.aws_settings,
+            usr_config.input_settings,
+            usr_config.output_settings,
+        )
+    elif translator_type == 'google':
+        # Ensure target languages from CLI are in the config
+        for lang in target_langs:
+            if lang not in usr_config.translator_settings.google_settings.target_languages:
+                raise ValueError(f'Target language {lang} not found in config')
+
+        translator = GoogleTranslator(
+            usr_config.translator_settings.google_settings,
             usr_config.input_settings,
             usr_config.output_settings,
         )

@@ -153,3 +153,6 @@ class TestMicrophone(unittest.IsolatedAsyncioTestCase):
         devices = Microphone.list_input_devices()
 
         self.assertEqual(len(devices), 0)
+
+    def test_uses_100ms_input_buffer_for_lower_latency(self):
+        self.assertEqual(self.microphone._buffer_frames, 1600)

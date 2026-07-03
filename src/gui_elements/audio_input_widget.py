@@ -5,6 +5,17 @@ from config.model.config_models import InputSettings
 from sound_inputs.microphone import Microphone
 
 
+def select_device_in_combo(combo: QComboBox, device_index: int | None, device_name: str | None) -> None:
+    """Select a device in combo by index (data), falling back to name (text)."""
+    if device_index is not None:
+        idx = combo.findData(device_index)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+            return
+    if device_name:
+        combo.setCurrentText(device_name)
+
+
 class AudioInputWidget(QWidget):
     def __init__(self, input_settings: InputSettings, parent=None):
         super().__init__(parent)
@@ -17,19 +28,9 @@ class AudioInputWidget(QWidget):
         Args:
             input_settings (InputSettings): User specific input settings.
         """
-
         self.input_channels.setValue(input_settings.input_channels)
         self.input_sample_rate.setValue(input_settings.input_sample_rate)
-
-        if input_settings.input_device_index is not None:
-            index = self.input_device.findData(input_settings.input_device_index)
-            if index >= 0:
-                self.input_device.setCurrentIndex(index)
-            elif input_settings.input_device:
-                self.input_device.setCurrentText(input_settings.input_device)
-        elif input_settings.input_device:
-            self.input_device.setCurrentText(input_settings.input_device)
-
+        select_device_in_combo(self.input_device, input_settings.input_device_index, input_settings.input_device)
         self._input_settings = input_settings
 
     def _setup_ui(self):
@@ -50,14 +51,9 @@ class AudioInputWidget(QWidget):
                 device_name += f':({device["host_api_name"]})'
             self.input_device.addItem(device_name, device['index'])
 
-        if self._input_settings.input_device_index is not None:
-            index = self.input_device.findData(self._input_settings.input_device_index)
-            if index >= 0:
-                self.input_device.setCurrentIndex(index)
-            elif self._input_settings.input_device:
-                self.input_device.setCurrentText(self._input_settings.input_device)
-        elif self._input_settings.input_device:
-            self.input_device.setCurrentText(self._input_settings.input_device)
+        select_device_in_combo(
+            self.input_device, self._input_settings.input_device_index, self._input_settings.input_device
+        )
 
         tip_text = 'Select the input device for audio capture.'
 

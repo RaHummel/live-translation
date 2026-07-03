@@ -73,7 +73,7 @@ class MumbleWidget(QWidget):
         add_mapping_layout.setSpacing(5)
 
         self.lang_select_combo = QComboBox()
-        all_target_langs = sorted(list(TRANSLATOR['aws'].keys()))
+        all_target_langs = sorted(self._get_language_keys())
         self.lang_select_combo.addItems(all_target_langs)
         self.lang_select_combo.setToolTip('Select the target language for the mapping.')
         self.lang_select_combo.setStatusTip('Select the language for which you want to add a channel mapping.')
@@ -113,11 +113,11 @@ class MumbleWidget(QWidget):
         channel_path = self.channel_path_input.text().strip()
 
         if not lang or not channel_path:
-            print('Language or channel path cannot be empty.')
+            LOGGER.warning('Language or channel path cannot be empty.')
             return
 
         if lang in self.channel_mapping:
-            print(f'Mapping for "{lang}" already exists. Updating.')
+            LOGGER.info(f'Mapping for "{lang}" already exists. Updating.')
 
         self.channel_mapping[lang] = channel_path
         self._update_mapping_list_widget()
@@ -132,11 +132,11 @@ class MumbleWidget(QWidget):
                     del self.channel_mapping[lang]
                     self._update_mapping_list_widget()
                 else:
-                    print(f'Error: Language "{lang}" not found in mapping.')
+                    LOGGER.warning(f'Language "{lang}" not found in mapping.')
             except Exception as e:
-                print(f'Error removing mapping "{text}": {e}')
+                LOGGER.error(f'Error removing mapping "{text}": {e}')
         else:
-            print('No item selected for removal.')
+            LOGGER.debug('No item selected for removal.')
 
     def eventFilter(self, obj, event):
         if (
@@ -160,3 +160,15 @@ class MumbleWidget(QWidget):
 
     def get_current_mappings(self):
         return self.channel_mapping
+
+    @staticmethod
+    def _get_language_keys() -> set:
+        """
+        Get a set of all unique language keys from the TRANSLATOR dictionary.
+        """
+        lang_keys = set()
+        for engine in TRANSLATOR.values():
+            for lang_dict in engine.values():
+                for lang in lang_dict:
+                    lang_keys.add(lang)
+        return lang_keys

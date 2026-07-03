@@ -1,17 +1,20 @@
 import logging
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QStackedWidget, QVBoxLayout, QWidget
 
 from config.model.config_models import TranslatorSettings
 from constants import TRANSLATOR
 from gui_elements.aws_widget import AWSWidget
+from gui_elements.google_widget import GoogleWidget
 
 LOGGER = logging.getLogger(__name__)
 
 
 class TranslatorWidget(QWidget):
+    provider_changed = Signal(str)
+
     """
     A widget for configuring translation service settings, including
     provider selection and specific settings for each provider.
@@ -30,8 +33,11 @@ class TranslatorWidget(QWidget):
             translator_settings (dict): User specific translation settings,
                                         typically loaded from a config file.
         """
+        self._translator_settings = translator_settings
         self.translator_select.setCurrentText(translator_settings.translator)
         self.aws_tab_widget.update_settings(translator_settings.aws_settings)
+        self.google_tab_widget.update_settings(translator_settings.google_settings)
+        self._update_translation_fields(translator_settings.translator)
 
     def _setup_ui(self) -> None:
         """
@@ -59,8 +65,19 @@ class TranslatorWidget(QWidget):
         main_layout.addWidget(service_select_group)
 
         self.translator_stacked = QStackedWidget()
+
         self.aws_tab_widget = AWSWidget(self._translator_settings.aws_settings)
         self.translator_stacked.addWidget(self.aws_tab_widget)
+
+        self.google_tab_widget = GoogleWidget(self._translator_settings.google_settings)
+        self.translator_stacked.addWidget(self.google_tab_widget)
+
+        self._provider_widget_map = {
+            'aws': self.aws_tab_widget,
+            'google': self.google_tab_widget,
+        }
+
+        self._update_translation_fields(self._translator_settings.translator)
 
         main_layout.addWidget(self.translator_stacked, 1)  # Allows the stacked widget to expand vertically
         self.setLayout(main_layout)
@@ -73,11 +90,18 @@ class TranslatorWidget(QWidget):
         Args:
             target_lang_connector (Callable): The slot to connect the signal to.
         """
-        if not isinstance(self.aws_tab_widget, AWSWidget):
-            LOGGER.error(f'AWS Config not initialized properly in {self.__class__.__name__}')
+        if not isinstance(self.aws_tab_widget, AWSWidget) or not isinstance(self.google_tab_widget, GoogleWidget):
+            LOGGER.error(f'Translator configs not initialized properly in {self.__class__.__name__}')
             return
 
         self.aws_tab_widget.target_lang_toggled.connect(target_lang_connector)
+        self.google_tab_widget.target_lang_toggled.connect(target_lang_connector)
+
+    def add_provider_changed_signal(self, provider_connector: Callable) -> None:
+        self.provider_changed.connect(provider_connector)
+
+    def get_translator_settings(self) -> TranslatorSettings:
+        return self._translator_settings
 
     def _update_translation_fields(self, text: str) -> None:
         """
@@ -86,7 +110,9 @@ class TranslatorWidget(QWidget):
         Args:
             text (str): The name of the selected translation service provider (e.g., "aws").
         """
-        if text == 'aws':
-            self.translator_stacked.setCurrentWidget(self.aws_tab_widget)
+        self._translator_settings.translator = text
+        widget = self._provider_widget_map.get(text)
+        if widget:
+            self.translator_stacked.setCurrentWidget(widget)
 
-    # --- INNER CLASS: AWSConfigWidget ---
+        self.provider_changed.emit(text)

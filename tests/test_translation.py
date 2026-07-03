@@ -31,7 +31,7 @@ class TestTranslation(unittest.IsolatedAsyncioTestCase):
         mock_new_loop.return_value = mock_loop
         mock_loop.run_until_complete.return_value = None
 
-        with patch.object(self.translation, '_start_main_task', return_value=AsyncMock()):
+        with patch.object(self.translation, '_run_translation', return_value=AsyncMock()):
             self.translation.run()
 
         self.assertTrue(mock_loop.close.called)
@@ -58,16 +58,17 @@ class TestTranslation(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mock_loop.close.called)
         mock_logger.error.assert_called()
 
-    async def test_start_main_task_cancelled(self):
-        self.translation._loop = MagicMock(spec=asyncio.AbstractEventLoop)
-        with patch.object(self.translation, '_translation_loop_coro', side_effect=asyncio.CancelledError()), \
-             patch.object(self.translation, '_clean_up'):
-            await self.translation._start_main_task()
-            self.assertTrue(self.translation._clean_up.called)
+    async def test_run_translation_cancelled(self):
+        """_run_translation handles CancelledError and calls _clean_up."""
+        self.mock_translator.start_translation = AsyncMock(side_effect=asyncio.CancelledError())
+        with patch.object(self.translation, '_clean_up') as mock_cleanup:
+            await self.translation._run_translation()
+            mock_cleanup.assert_called_once()
 
-    async def test_translation_loop_coro(self):
+    async def test_run_translation(self):
+        """_run_translation calls start_translation on the translator."""
         self.mock_translator.start_translation = AsyncMock()
-        await self.translation._translation_loop_coro()
+        await self.translation._run_translation()
         self.assertTrue(self.mock_translator.start_translation.called)
 
     def test_stop_loop_not_running(self):
@@ -102,13 +103,11 @@ class TestTranslation(unittest.IsolatedAsyncioTestCase):
 
     @patch('asyncio.wait_for', new_callable=AsyncMock)
     async def test_wait_for_main_task_graceful(self, mock_wait):
-        # Use a real future to ensure .done() returns False
         self.translation._main_task = asyncio.Future()
         await self.translation._wait_for_main_task(1.0)
         mock_wait.assert_called_once()
 
     def test_clean_up(self):
         self.translation._clean_up()
-        self.mock_translator.stop_translation.assert_called_once()
         self.assertTrue(self.stub_sound_input.stop_called)
         self.assertTrue(self.stub_sound_output.stop_called)

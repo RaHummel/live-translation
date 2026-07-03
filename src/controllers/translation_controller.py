@@ -8,8 +8,9 @@ from config.model.config_models import UserConfig
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
 from sound_outputs.speaker import Speaker
-from translation import SoundOutput, Translation
+from translation import SoundOutput, Translation, Translator
 from translators.aws_translator import AWSTranslator
+from translators.google_translator import GoogleTranslator
 from translators.translation_callbacks import TranslationCallbacks
 
 LOGGER = logging.getLogger(__name__)
@@ -26,10 +27,15 @@ class TranslationController(QObject):
     status_label_signal = Signal(str)
     start_button_enabled = Signal(bool)
     stop_button_enabled = Signal(bool)
+    update_source_field_signal = Signal(str)
+    update_target_field_signal = Signal(str, str)
 
-    def __init__(self, callbacks: TranslationCallbacks):
+    def __init__(self):
         super().__init__()
-        self._callbacks = callbacks
+        self._callbacks = TranslationCallbacks(
+            update_source_field=self.update_source_field_signal.emit,
+            update_target_field=self.update_target_field_signal.emit,
+        )
         self._translation_thread: Optional[threading.Thread] = None
         self._translation: Optional[Translation] = None
 
@@ -42,48 +48,12 @@ class TranslationController(QObject):
         LOGGER.debug('Initiating translation service setup.')
 
         try:
-            lang_to_output: Dict[str, SoundOutput] = {}
-
-            # --- Initialize Translator ---
-            translator_type = config.translator_settings.translator
-            if translator_type == 'aws':
-                target_languages = config.translator_settings.aws_settings.target_languages
-                translator = AWSTranslator(
-                    config.translator_settings.aws_settings,
-                    config.input_settings,
-                    config.output_settings,
-                    self._callbacks,
-                )
-                LOGGER.debug('AWS Translator initialized.')
-            else:
-                raise ValueError(f'Translator type "{translator_type}" not supported.')
-
-            # --- Initialize Output Method ---
-            output_method = config.output_settings.output_method
-            if output_method == 'speaker':
-                if len(target_languages) != 1:
-                    raise ValueError('Speaker output requires exactly one target language.')
-                lang_to_output[next(iter(target_languages))] = Speaker(config.output_settings)
-                LOGGER.debug('Speaker output initialized.')
-            elif output_method == 'mumble':
-                if not target_languages:
-                    raise ValueError('Mumble output requires at least one target language.')
-                for lang in target_languages:
-                    sound_output = MumbleClient(config.output_settings, lang)
-                    sound_output.connect()
-                    lang_to_output[lang] = sound_output
-                    LOGGER.debug('Mumble client initialized and connected for language: %s', lang)
-            else:
-                raise ValueError(f'Unsupported output method "{output_method}" selected.')
-
-            # --- Initialize Microphone Input ---
+            translator, target_languages = self._create_translator(config)
+            lang_to_output = self._create_outputs(config, target_languages)
             microphone = Microphone(config.input_settings)
             LOGGER.debug('Microphone input initialized.')
 
-            # --- Initialize Translation Core ---
             self._translation = Translation(translator, microphone, lang_to_output)
-
-            # --- Start Translation in a Separate Thread ---
             self._translation_thread = threading.Thread(
                 target=self._translation.run, daemon=True, name='TranslationServiceThread'
             )
@@ -108,12 +78,65 @@ class TranslationController(QObject):
         self.status_label_signal.emit('Status: Stopping...')
         LOGGER.debug('Initiating translation service shutdown.')
 
-        # Use a separate thread to handle the blocking join operation
         shutdown_thread = threading.Thread(target=self._shutdown_and_join, daemon=True)
         shutdown_thread.start()
 
+    def _create_translator(self, config: UserConfig) -> tuple[Translator, dict]:
+        """Instantiates the correct Translator based on config and returns it with its target language dict."""
+        translator_type = config.translator_settings.translator
+
+        if translator_type == 'aws':
+            aws_settings = config.translator_settings.aws_settings
+            if aws_settings is None:
+                raise ValueError('AWS translator selected but AWS settings are not configured.')
+
+            translator = AWSTranslator(aws_settings, config.input_settings, config.output_settings, self._callbacks)
+            LOGGER.debug('AWS Translator initialized.')
+            return translator, aws_settings.target_languages
+
+        if translator_type == 'google':
+            google_settings = config.translator_settings.google_settings
+            if google_settings is None:
+                raise ValueError('Google translator selected but Google settings are not configured.')
+
+            translator = GoogleTranslator(
+                google_settings, config.input_settings, config.output_settings, self._callbacks
+            )
+            LOGGER.debug('Google Translator initialized.')
+
+            return translator, google_settings.target_languages
+
+        raise ValueError(f'Translator type "{translator_type}" not supported.')
+
+    def _create_outputs(self, config: UserConfig, target_languages: dict) -> Dict[str, SoundOutput]:
+        """Instantiates and connects the correct SoundOutput instances for each target language."""
+        output_method = config.output_settings.output_method
+        lang_to_output: Dict[str, SoundOutput] = {}
+
+        if output_method == 'speaker':
+            if len(target_languages) != 1:
+                raise ValueError('Speaker output requires exactly one target language.')
+
+            lang_to_output[next(iter(target_languages))] = Speaker(config.output_settings)
+            LOGGER.debug('Speaker output initialized.')
+
+        elif output_method == 'mumble':
+            if not target_languages:
+                raise ValueError('Mumble output requires at least one target language.')
+
+            for lang in target_languages:
+                client = MumbleClient(config.output_settings, lang)
+                client.connect()
+                lang_to_output[lang] = client
+                LOGGER.debug('Mumble client initialized and connected for language: %s', lang)
+
+        else:
+            raise ValueError(f'Unsupported output method "{output_method}" selected.')
+
+        return lang_to_output
+
     def _shutdown_and_join(self):
-        """Helper method to run in a separate thread for a clean shutdown."""
+        """Runs in a separate thread to cleanly stop the translation service."""
         if self._translation and self._translation_thread and self._translation_thread.is_alive():
             try:
                 self._translation.stop()

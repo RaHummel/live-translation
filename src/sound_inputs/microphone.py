@@ -25,11 +25,12 @@ class Microphone(SoundInput):
         self._pa = pyaudio.PyAudio()
         self._input_settings = input_settings
         self._audio_stream: Optional[Stream] = None
-        self._loop: AbstractEventLoop = None
-        self._input_queue = asyncio.Queue(maxsize=100)
+        self._loop: Optional[AbstractEventLoop] = None
+        self._input_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
 
         self._input_device_info = self._get_input_device(self._input_settings.input_device_index)
-        self._buffer_frames = int(self._input_settings.input_sample_rate / 2)
+        # Use ~100ms audio chunks to reduce end-of-utterance latency for streaming STT.
+        self._buffer_frames = int(self._input_settings.input_sample_rate / 10)
 
     async def get_audio_stream(self, shutdown_event: Event) -> AsyncGenerator[bytes, None]:
         """Streams audio from the microphone to an asyncio.Queue.
@@ -70,22 +71,22 @@ class Microphone(SoundInput):
         self._pa.terminate()
         LOGGER.debug('Microphone stream stopped and PyAudio terminated.')
 
-    def _callback(self, indata: bytes, *args, **kwargs) -> Tuple[bytes, int]:
+    def _callback(self, indata: bytes, *args, **kwargs) -> Tuple[Optional[bytes], int]:
         """Callback function for the audio stream.
         Args:
             indata (bytes): The audio data chunk.
         """
-        if not self._loop:
-            return (None, pyaudio.paContinue)
+        if self._loop is None:
+            return None, pyaudio.paContinue
 
         if self._input_queue.full():
             LOGGER.warning('Input audio queue is full, dropping audio chunk.')
-            return (None, pyaudio.paContinue)
+            return None, pyaudio.paContinue
 
         with contextlib.suppress(asyncio.QueueFull):
             self._loop.call_soon_threadsafe(self._input_queue.put_nowait, indata)
 
-        return (None, pyaudio.paContinue)
+        return None, pyaudio.paContinue
 
     def _get_input_device(self, device_index: Optional[int]) -> Mapping:
         """Gets the input device information by index (preferred) or name.
@@ -115,7 +116,7 @@ class Microphone(SoundInput):
             List[Mapping]: A list of input device information dictionaries.
         """
         pa = pyaudio.PyAudio()
-        devices = []
+        devices: List[Mapping] = []
         for i in range(pa.get_device_count()):
             device = pa.get_device_info_by_index(i)
             # Only include devices with input channels and required host API

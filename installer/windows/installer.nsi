@@ -13,7 +13,7 @@
 !ifndef APP_VERSION
     !define APP_VERSION "1.0.0"  ; Fallback version if not provided
 !endif
-!define APP_PUBLISHER "Raimund Hummel, Matthias Kuczera"
+!define APP_PUBLISHER "Matthias Kuczera, Raimund Hummel"
 !define APP_WEB_SITE "https://github.com/RaHummel/live-translation"
 !define APP_EXE "${APP_NAME}.exe"
 !define APP_UNINSTALLER "uninstall.exe"
@@ -31,7 +31,7 @@ RequestExecutionLevel admin
 !define MUI_UNICON "..\..\img\live-translation-app.ico"
 
 ; Pages
-!insertmacro MUI_PAGE_LICENSE "license.txt"
+!insertmacro MUI_PAGE_LICENSE "..\\..\\LICENSE"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES

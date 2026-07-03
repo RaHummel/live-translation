@@ -1,3 +1,4 @@
+
 # -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller spec file for Live Translation application.

@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 
@@ -8,9 +9,7 @@ if sys.platform == 'win32':
         vcpkg_bin = os.path.join(vcpkg_path, 'installed', 'x64-windows', 'bin')
         if os.path.exists(vcpkg_bin):
             os.add_dll_directory(vcpkg_bin)
-    
+
     # Also add current directory as a fallback
-    try:
+    with contextlib.suppress(Exception):
         os.add_dll_directory(os.getcwd())
-    except Exception:
-        pass

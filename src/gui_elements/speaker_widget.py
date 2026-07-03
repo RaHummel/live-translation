@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QVBoxLayout, QWidget
 
 from config.model.config_models import SpeakerSettings
+from gui_elements.audio_input_widget import select_device_in_combo
 from sound_outputs.speaker import Speaker
 
 
@@ -17,15 +18,7 @@ class SpeakerWidget(QWidget):
         Args:
             speaker_settings (SpeakerSettings): User specific speaker settings.
         """
-        if speaker_settings.output_device_index is not None:
-            index = self.output_device.findData(speaker_settings.output_device_index)
-            if index >= 0:
-                self.output_device.setCurrentIndex(index)
-            elif speaker_settings.output_device:
-                self.output_device.setCurrentText(speaker_settings.output_device)
-        elif speaker_settings.output_device:
-            self.output_device.setCurrentText(speaker_settings.output_device)
-
+        select_device_in_combo(self.output_device, speaker_settings.output_device_index, speaker_settings.output_device)
         self._speaker_settings = speaker_settings
 
     def _setup_ui(self):
@@ -43,14 +36,9 @@ class SpeakerWidget(QWidget):
         for device in devices:
             self.output_device.addItem(device['name'], device['index'])
 
-        if self._speaker_settings.output_device_index is not None:
-            index = self.output_device.findData(self._speaker_settings.output_device_index)
-            if index >= 0:
-                self.output_device.setCurrentIndex(index)
-            elif self._speaker_settings.output_device:
-                self.output_device.setCurrentText(self._speaker_settings.output_device)
-        elif self._speaker_settings.output_device:
-            self.output_device.setCurrentText(self._speaker_settings.output_device)
+        select_device_in_combo(
+            self.output_device, self._speaker_settings.output_device_index, self._speaker_settings.output_device
+        )
 
         self.output_device.setToolTip('Select the speaker or output device for translated audio.')
         self.output_device.setStatusTip('Select the output device for audio playback.')

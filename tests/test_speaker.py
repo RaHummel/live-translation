@@ -51,17 +51,41 @@ class TestSpeaker(unittest.IsolatedAsyncioTestCase):
 
     async def test_play_success(self):
         mock_output_stream = MagicMock(spec=StreamingBody)
-        # Read method returns empty bytes to stop the loop
         mock_output_stream.read.return_value = b''
         mock_stream = MagicMock()
         self.mock_pa_instance.open.return_value = mock_stream
 
         await self.speaker.play(mock_output_stream)
+        if self.speaker._consumer_task:
+            await self.speaker._consumer_task
 
         self.assertTrue(mock_stream.start_stream.called)
-        self.assertTrue(mock_stream.stop_stream.called)
-        self.assertTrue(mock_stream.close.called)
         self.assertFalse(self.speaker._is_playing)
+
+    async def test_play_reuses_persistent_stream(self):
+        mock_output_stream_1 = MagicMock(spec=StreamingBody)
+        mock_output_stream_1.read.side_effect = [b'data1', b'']
+
+        mock_output_stream_2 = MagicMock(spec=StreamingBody)
+        mock_output_stream_2.read.side_effect = [b'data2', b'']
+
+        mock_stream = MagicMock()
+        self.mock_pa_instance.open.return_value = mock_stream
+
+        # First play: stream opens
+        await self.speaker.play(mock_output_stream_1)
+        if self.speaker._consumer_task:
+            await self.speaker._consumer_task
+        self.assertEqual(self.mock_pa_instance.open.call_count, 1)
+        self.assertTrue(mock_stream.start_stream.called)
+
+        # Second play: stream reused, no new open
+        await self.speaker.play(mock_output_stream_2)
+        if self.speaker._consumer_task:
+            await self.speaker._consumer_task
+        self.assertEqual(self.mock_pa_instance.open.call_count, 1)
+        self.assertFalse(mock_stream.stop_stream.called)
+        self.assertFalse(mock_stream.close.called)
 
     async def test_play_already_playing(self):
         self.speaker._is_playing = True
@@ -72,10 +96,16 @@ class TestSpeaker(unittest.IsolatedAsyncioTestCase):
 
     def test_stop_audio_stream(self):
         self.speaker._is_playing = True
+        mock_stream = MagicMock()
+        self.speaker._audio_stream = mock_stream
+        self.speaker._stream_initialized = True
 
         self.speaker.stop_audio_stream()
 
         self.assertFalse(self.speaker._is_playing)
+        mock_stream.stop_stream.assert_called_once()
+        mock_stream.close.assert_called_once()
+        self.assertFalse(self.speaker._stream_initialized)
         self.mock_pa_instance.terminate.assert_called_once()
 
     def test_play_blocking_reads_data(self):
