@@ -203,7 +203,7 @@ class GoogleTranslator(Translator):
 
                     if result.is_final:
                         transcript = result.alternatives[0].transcript
-                        LOGGER.info(f'Final transcript received: {transcript}')
+                        LOGGER.debug(f'Final transcript received: {transcript}')
                         if self._translation_callbacks is not None:
                             self._translation_callbacks.update_source_field(transcript)
 
@@ -217,11 +217,14 @@ class GoogleTranslator(Translator):
                 LOGGER.debug('STT streaming task cancelled.')
                 break
             except Exception as e:
-                if 'RPC already finished' in str(e):
+                error_str = str(e)
+                if 'RPC already finished' in error_str:
                     LOGGER.debug('STT stream closed by server (normal for short model), restarting...')
+                elif 'Max duration' in error_str or 'ABORTED' in error_str:
+                    LOGGER.debug('STT stream hit 5-minute server limit, restarting...')
                 else:
                     LOGGER.error(f'Error in Google STT streaming: {e}', exc_info=True)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
             finally:
                 LOGGER.debug('Google STT streaming recognition stream session finished.')
 

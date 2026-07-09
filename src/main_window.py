@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config_manager: ConfigManager):
         super().__init__()
         self.setWindowTitle('Live Translation')
-        self.setMinimumSize(1200, 850)
+        self.setMinimumSize(1200, 750)
         self._config_manager = config_manager
 
         # Actions are created here and reused
