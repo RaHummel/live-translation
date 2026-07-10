@@ -500,17 +500,58 @@ TRANSLATOR = {
     },
 }
 
-GOOGLE_REGIONS = {
-    'us': 'multi-region',
-    'eu': 'multi-region',
-    'europe-west3': 'Frankfurt',
-    'europe-west2': 'London',
-    'us-central1': 'Iowa',
-    'us-east1': 'S. Carolina',
-    'us-east4': 'N. Virginia',
-    'us-west1': 'Oregon',
-    'asia-southeast1': 'Singapore',
-    'asia-northeast1': 'Tokyo',
+# Reduced set of "global" STT regions. Each region is paired with the STT model that
+# offers the widest language support for that region/endpoint. The model is therefore
+# implicitly derived from the selected region (see GoogleSettings) and not user-selectable.
+GOOGLE_STT_REGIONS = {
+    'us': 'chirp_3',
+    'eu': 'chirp_3',
+    'europe-west4': 'chirp_2',
+    'us-central1': 'chirp_2',
+    'asia-southeast1': 'chirp_2',
+}
+
+# Streaming-capable Speech-to-Text v2 models suitable for live translation.
+# Batch-only / high-latency models (e.g. latest_long) are intentionally excluded.
+#
+# Supported languages per model must be verified against the official docs, since
+# Google updates/extends this list regularly:
+# https://cloud.google.com/speech-to-text/v2/docs/speech-to-text-supported-languages
+GOOGLE_STT_MODELS = {
+    'chirp_3': [
+        'af-ZA', 'sq-AL', 'am-ET', 'ar-DZ', 'ar-BH', 'ar-EG', 'ar-IQ', 'ar-IL',
+        'ar-JO', 'ar-KW', 'ar-LB', 'ar-MR', 'ar-MA', 'ar-OM', 'ar-XA', 'ar-QA',
+        'ar-SA', 'ar-PS', 'ar-SY', 'ar-TN', 'ar-AE', 'ar-YE', 'hy-AM', 'as-IN',
+        'ast-ES', 'az-AZ', 'eu-ES', 'bn-BD', 'bn-IN', 'bg-BG', 'my-MM', 'ca-ES',
+        'cmn-Hans-CN', 'yue-Hant-HK', 'cmn-Hant-TW', 'hr-HR', 'cs-CZ', 'da-DK',
+        'nl-NL', 'en-AU', 'en-IN', 'en-PH', 'en-GB', 'en-US', 'et-EE', 'fil-PH',
+        'fi-FI', 'fr-CA', 'fr-FR', 'gl-ES', 'ka-GE', 'de-DE', 'el-GR', 'gu-IN',
+        'ha-NG', 'iw-IL', 'hi-IN', 'hu-HU', 'is-IS', 'id-ID', 'it-IT', 'ja-JP',
+        'jv-ID', 'kn-IN', 'kk-KZ', 'km-KH', 'ko-KR', 'ky-KG', 'lo-LA', 'lv-LV',
+        'lt-LT', 'lb-LU', 'mk-MK', 'ms-MY', 'ml-IN', 'mt-MT', 'mi-NZ', 'mr-IN',
+        'mn-MN', 'ne-NP', 'no', 'or-IN', 'fa-IR', 'pl-PL', 'pt-BR', 'pt-PT',
+        'pa-Guru-IN', 'ro-RO', 'ru-RU', 'nso-ZA', 'sr-RS', 'sk-SK', 'sl-SI',
+        'es-MX', 'es-ES', 'es-US', 'sw', 'sw-KE', 'sv-SE', 'ta-IN', 'te-IN',
+        'th-TH', 'tr-TR', 'uk-UA', 'ur-PK', 'uz-UZ', 'vi-VN', 'cy-GB','wo-SN',
+        'xh-ZA', 'yo-NG', 'zu-ZA',
+    ],
+    'chirp_2': [
+        'af-ZA', 'sq-AL', 'am-ET', 'ar-EG', 'hy-AM', 'rup-BG', 'as-IN', 'ast-ES',
+        'az-AZ', 'eu-ES', 'be-BY', 'bn-BD', 'bn-IN', 'bs-BA', 'bg-BG', 'my-MM',
+        'ca-ES', 'ceb-PH', 'ckb-IQ', 'cmn-Hans-CN', 'yue-Hant-HK', 'cmn-Hant-TW', 'hr-HR', 'cs-CZ',
+        'da-DK', 'nl-NL', 'en-AU', 'en-IN', 'en-GB', 'en-US', 'et-EE', 'fil-PH',
+        'fi-FI', 'fr-CA', 'fr-FR', 'ff-SN', 'gl-ES', 'lg-UG', 'ka-GE', 'de-DE',
+        'el-GR', 'gu-IN', 'ha-NG', 'iw-IL', 'hi-IN', 'hu-HU', 'is-IS', 'ig-NG',
+        'id-ID', 'ga-IE', 'it-IT', 'ja-JP', 'jv-ID', 'kea-CV', 'kam-KE', 'kn-IN',
+        'kk-KZ', 'km-KH', 'ko-KR', 'ky-KG', 'lo-LA', 'lv-LV', 'ln-CD', 'lt-LT',
+        'luo-KE', 'lb-LU', 'mk-MK', 'ms-MY', 'ml-IN', 'mt-MT', 'mi-NZ', 'mr-IN',
+        'mn-MN', 'ne-NP', 'no', 'ny-MW', 'oc-FR', 'or-IN', 'om-ET', 'ps-AF',
+        'fa-IR', 'pl-PL', 'pt-BR', 'pt-PT', 'pa-Guru-IN', 'ro-RO', 'ru-RU', 'nso-ZA',
+        'sr-RS', 'sn-ZW', 'sd-IN', 'si-LK', 'sk-SK', 'sl-SI', 'so-SO', 'es-419',
+        'es-ES', 'es-US', 'su-ID', 'sw', 'sw-KE', 'sv-SE', 'tg-TJ', 'ta-IN',
+        'te-IN', 'th-TH', 'tr-TR', 'uk-UA', 'umb-AO', 'ur-PK', 'uz-UZ', 'vi-VN',
+        'cy-GB', 'wo-SN', 'xh-ZA', 'yo-NG', 'zu-ZA'
+    ]
 }
 
 GOOGLE_ENDPOINTING_OPTIONS = {

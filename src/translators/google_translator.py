@@ -13,6 +13,7 @@ from google.cloud import texttospeech, translate
 from google.cloud.speech_v2.types import cloud_speech
 
 from config.model.config_models import GoogleSettings, InputSettings, OutputSettings
+from constants import GOOGLE_STT_REGIONS
 from translation import SoundOutput, Translator
 from translators.translation_callbacks import TranslationCallbacks
 
@@ -169,7 +170,7 @@ class GoogleTranslator(Translator):
                         audio_channel_count=self._input_settings.input_channels,
                     ),
                     language_codes=[self._google_settings.source_language],
-                    model='chirp_3',
+                    model=GOOGLE_STT_REGIONS.get(self._google_settings.region, 'chirp_3'),
                     features=cloud_speech.RecognitionFeatures(
                         enable_automatic_punctuation=True,
                     ),

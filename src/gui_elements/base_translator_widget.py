@@ -67,6 +67,9 @@ class BaseTranslatorProviderWidget(QWidget):
     def _build_extra_language_options(self, layout: QFormLayout) -> None:
         """Override to add extra rows below the source language form (e.g. endpointing)."""
 
+    def _build_extra_engine_options(self, layout: QHBoxLayout) -> None:
+        """Override to add widgets directly next to the engine combo (same row)."""
+
     def _setup_language_ui(self, parent_layout: QVBoxLayout) -> None:
         """Builds the shared Language Settings group (source + target grid)."""
         language_settings_group = QGroupBox('Language Settings')
@@ -74,21 +77,30 @@ class BaseTranslatorProviderWidget(QWidget):
 
         source_lang_form_layout = QFormLayout(fieldGrowthPolicy=QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        source_and_engine_layout = QHBoxLayout()
-        source_and_engine_layout.addWidget(self._get_source_language_combo())
+        source_lang_layout = QHBoxLayout()
+        source_lang_layout.addWidget(self._get_source_language_combo())
+        self._build_extra_source_options(source_lang_layout)
+        source_lang_layout.addStretch()
+        source_lang_form_layout.addRow('Source Language:', source_lang_layout)
 
-        engine_label = QLabel('Engine:')
-        source_and_engine_layout.addWidget(engine_label)
-
+        engine_layout = QHBoxLayout()
         self.engine_select = QComboBox()
         self.engine_select.addItems(self._get_engine_names())
         self.engine_select.setCurrentText(self._get_engine_names()[0])
+        self.engine_select.setToolTip(
+            'Selects the synthesis/recognition engine tier. Different engines offer different '
+            'languages, voices and quality/latency trade-offs.'
+        )
+        self.engine_select.setStatusTip('Choose the engine tier used for translation/voices.')
         self.engine_select.currentTextChanged.connect(self._on_engine_changed)
-        source_and_engine_layout.addWidget(self.engine_select)
+        self.engine_select.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._build_extra_engine_options(engine_layout)
+        engine_label = QLabel('Engine:')
+        engine_layout.addWidget(engine_label)
+        engine_layout.addWidget(self.engine_select)
+        engine_layout.addStretch()
+        source_lang_form_layout.addRow(engine_layout)
 
-        self._build_extra_source_options(source_and_engine_layout)
-
-        source_lang_form_layout.addRow('Source Language:', source_and_engine_layout)
         self._build_extra_language_options(source_lang_form_layout)
         language_settings_layout.addLayout(source_lang_form_layout)
 
@@ -261,11 +273,6 @@ class BaseTranslatorProviderWidget(QWidget):
                 'engine': engine,
             }
         return settings
-
-
-# ------------------------------------------------------------------
-# Shared utility
-# ------------------------------------------------------------------
 
 
 def clear_layout(layout: QLayout) -> None:

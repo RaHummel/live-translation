@@ -139,7 +139,7 @@ sudo cp $(brew --prefix opus)/lib/libopus.* /usr/local/lib/
 - Optional: Install NSIS to build `.exe` installer
 
 See troubleshooting:  
-`docs/BuildTroubleshooting.md`
+[docs/BuildTroubleshooting.md](docs/BuildTroubleshooting.md)
 
 ---
 
@@ -212,8 +212,8 @@ Currently supported:
 - **Google (Speech-to-Text, Translate, Text-to-Speech)**
 
 Setup instructions:  
-- AWS: 👉 `docs/AwsSetup.md`
-- Google: 👉 `docs/GoogleSetup.md`
+- AWS: 👉 [docs/AwsSetup.md](docs/AwsSetup.md)
+- Google: 👉 [docs/GoogleSetup.md](docs/GoogleSetup.md)
 
 Supported voices and languages:  
 - AWS Polly: https://docs.aws.amazon.com/polly/latest/dg/available-voices.html
@@ -224,7 +224,7 @@ Supported voices and languages:
 ## 🎧 Mumble Setup
 
 Detailed instructions:  
-👉 `docs/MumbleSetup.md`
+👉 [docs/MumbleSetup.md](docs/MumbleSetup.md)
 
 ---
 

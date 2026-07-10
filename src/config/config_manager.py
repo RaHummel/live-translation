@@ -18,7 +18,7 @@ from config.model.config_models import (
 from constants import (
     CHUNK_LEN,
     GOOGLE_ENDPOINTING_OPTIONS,
-    GOOGLE_REGIONS,
+    GOOGLE_STT_REGIONS,
     INPUT_CHANNELS,
     INPUT_SAMPLE_RATE,
     OUTPUT_SAMPLE_RATE,
@@ -214,9 +214,9 @@ class ConfigManager:
         if endpointing not in GOOGLE_ENDPOINTING_OPTIONS.values():
             endpointing = 'short'
 
-        region = raw.get('region', 'europe-west3')
-        if region not in GOOGLE_REGIONS:
-            region = 'europe-west3'
+        region = raw.get('region', 'eu')
+        if region not in GOOGLE_STT_REGIONS:
+            region = 'eu'
 
         return GoogleSettings(
             credentials_path=raw.get('credentials_path', ''),
