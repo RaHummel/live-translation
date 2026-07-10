@@ -68,7 +68,12 @@ class Microphone(SoundInput):
         else:
             self._audio_stream.stop_stream()
             self._audio_stream.close()
-        self._pa.terminate()
+        
+        if self._pa is not None:
+            self._pa.terminate()
+            self._pa = None
+        
+        self._audio_stream = None
         LOGGER.debug('Microphone stream stopped and PyAudio terminated.')
 
     def _callback(self, indata: bytes, *args, **kwargs) -> Tuple[Optional[bytes], int]:
