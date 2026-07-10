@@ -32,7 +32,7 @@ class MumbleClient(SoundOutput):
             port=self._output_settings.mumble_settings.port,
             user=language + '_' + MumbleClient.username_postfix,
             password='',
-            reconnect=True,
+            reconnect=False,
         )
 
         LOGGER.debug('Mumble client initialized')
@@ -46,7 +46,10 @@ class MumbleClient(SoundOutput):
 
         if self._mumble.connected != PYMUMBLE_CONN_STATE_CONNECTED:
             LOGGER.error('Failed to connect to Mumble server')
-            self._mumble.stop()
+            try:
+                self._mumble.stop()
+            except AttributeError:
+                LOGGER.debug('Mumble stop() raised AttributeError (control_socket=None), ignoring.')
             raise ConnectionError(
                 """Could not connect to Mumble server at {self._output_settings.mumble_settings.ip_address}:
                 {self._output_settings.mumble_settings.port}. Please check your configuration and ensure 

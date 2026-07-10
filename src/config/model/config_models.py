@@ -54,7 +54,7 @@ class GoogleSettings:
     show_source_transcript: bool
     target_languages: Dict[str, LanguageSettings]
     endpointing_sensitivity: str = 'short'
-    region: str = 'europe-west3'
+    region: str = 'eu'
 
 
 @dataclass

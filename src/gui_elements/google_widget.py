@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from config.model.config_models import GoogleSettings
-from constants import GOOGLE_CHIRP3_HD_VOICES, GOOGLE_ENDPOINTING_OPTIONS, GOOGLE_REGIONS, TRANSLATOR
+from constants import GOOGLE_ENDPOINTING_OPTIONS, GOOGLE_STT_MODELS, GOOGLE_STT_REGIONS
 from gui_elements.base_translator_widget import BaseTranslatorProviderWidget
 
 LOGGER = logging.getLogger(__name__)
@@ -39,10 +40,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         self._setup_ui()
         self._check_google_credentials()
 
-    # ------------------------------------------------------------------
-    # BaseTranslatorProviderWidget hooks
-    # ------------------------------------------------------------------
-
     def _get_provider_key(self) -> str:
         return 'google'
 
@@ -54,18 +51,40 @@ class GoogleWidget(BaseTranslatorProviderWidget):
             return self._source_lang_combo.currentText()
         return self._google_settings.source_language
 
+    def _get_stt_model_for_region(self, region: Optional[str] = None) -> str:
+        """Returns the STT model implicitly associated with *region* (or the current selection)."""
+        if region is None:
+            region = self._get_current_region()
+        return GOOGLE_STT_REGIONS.get(region, 'chirp_3')
+
+    def _get_current_region(self) -> str:
+        if hasattr(self, 'google_region_select') and self.google_region_select is not None:
+            data = self.google_region_select.currentData()
+            if data:
+                return data
+        return self._google_settings.region
+
+    def _on_region_changed(self, _index: int) -> None:
+        """Repopulate the source-language dropdown with the languages supported by the new region's model."""
+        if self._source_lang_combo is None:
+            return
+        model = self._get_stt_model_for_region()
+        previous = self._source_lang_combo.currentText()
+        languages = sorted(GOOGLE_STT_MODELS.get(model, []))
+        self._source_lang_combo.blockSignals(True)
+        self._source_lang_combo.clear()
+        self._source_lang_combo.addItems(languages)
+        if previous in languages:
+            self._source_lang_combo.setCurrentText(previous)
+        self._source_lang_combo.blockSignals(False)
+        self._update_target_languages(self._source_lang_combo.currentText())
+
     def _get_source_language_combo(self) -> QComboBox:
         if self._source_lang_combo is None:
             self._source_lang_combo = QComboBox()
-            languages = sorted(
-                set(
-                    list(TRANSLATOR['google']['standard'].keys())
-                    + list(TRANSLATOR['google']['wavenet'].keys())
-                    + list(TRANSLATOR['google']['neural2'].keys())
-                    + list(TRANSLATOR['google']['studio'].keys())
-                    + list(GOOGLE_CHIRP3_HD_VOICES.keys())
-                )
-            )
+            self._source_lang_combo.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            model = self._get_stt_model_for_region(self._google_settings.region)
+            languages = sorted(GOOGLE_STT_MODELS.get(model, []))
             self._source_lang_combo.addItems(languages)
             self._source_lang_combo.setCurrentText(self._google_settings.source_language)
             self._source_lang_combo.setStatusTip('Select the language spoken by the input audio.')
@@ -82,12 +101,15 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         region_form_layout.setFormAlignment(Qt.AlignmentFlag.AlignHCenter)
         region_form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.google_region_select = QComboBox()
-        for region_code, region_name in GOOGLE_REGIONS.items():
+        for region_code, region_name in GOOGLE_STT_REGIONS.items():
             self.google_region_select.addItem(f'{region_code} ({region_name})', region_code)
         region = self._google_settings.region
-        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_REGIONS[region]})')
+        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_STT_REGIONS[region]})')
         self.google_region_select.setStatusTip('Select the Google Cloud region for Speech-to-Text.')
-        self.google_region_select.setToolTip('Choose your Google Cloud region.')
+        self.google_region_select.setToolTip(
+            'Choose your Google Cloud region. The Speech-to-Text model is chosen automatically based on the region.'
+        )
+        self.google_region_select.currentIndexChanged.connect(self._on_region_changed)
         region_form_layout.addRow('Region:', self.google_region_select)
         google_connection_v_layout.addLayout(region_form_layout)
 
@@ -110,8 +132,15 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         parent_layout.addWidget(google_connection_group)
 
     def _build_extra_language_options(self, layout: QFormLayout) -> None:
-        """Add endpointing sensitivity selector below source language."""
+        """No extra form rows for Google; Response Speed lives next to the Engine combo instead."""
+
+    def _build_extra_engine_options(self, layout: QHBoxLayout) -> None:
+        """Add endpointing sensitivity selector right next to the Engine combo."""
+        response_speed_label = QLabel('Response Speed:')
+        layout.addWidget(response_speed_label)
+
         self.google_endpointing_select = QComboBox()
+        self.google_endpointing_select.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.google_endpointing_select.addItems(GOOGLE_ENDPOINTING_OPTIONS.keys())
         self.google_endpointing_select.setCurrentText(
             self._endpointing_label_for_value(self._google_settings.endpointing_sensitivity)
@@ -120,12 +149,12 @@ class GoogleWidget(BaseTranslatorProviderWidget):
             'Adjusts how quickly the system decides that the speaker has finished speaking'
         )
         self.google_endpointing_select.setStatusTip('Faster Response = may cut off speech earlier.')
-        layout.addRow('Response Speed', self.google_endpointing_select)
+        layout.addWidget(self.google_endpointing_select)
 
     def update_settings(self, google_settings: GoogleSettings) -> None:
         """Updates the Google settings in the widget."""
         region = google_settings.region
-        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_REGIONS[region]})')
+        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_STT_REGIONS[region]})')
         source_lang_combo = self._get_source_language_combo()
         source_lang_combo.setCurrentText(google_settings.source_language)
         self._credentials_path = google_settings.credentials_path
