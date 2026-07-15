@@ -9,7 +9,8 @@ Real-time speech translation service with multi-language audio output.
 </p>
 
 <p>
-Live audio is transcribed, translated, converted back to speech, and streamed to separate Mumble channels — enabling multilingual audiences to listen in their preferred language.
+Live audio is transcribed, translated, converted back to speech, and streamed to separate Mumble
+channels — enabling multilingual audiences to listen in their preferred language.
 </p>
 
 <p>
@@ -47,6 +48,7 @@ Live audio is transcribed, translated, converted back to speech, and streamed to
 - 🎙 **Real-time Speech Translation**
 - 🌍 **Multiple Target Languages in Parallel**
 - 🔊 **Audio Output via Speaker or Mumble**
+- 🤖 **Automated Mumble Server Setup** — no manual installation, channel or ACL configuration required
 - 🎛 **Configurable Language-to-Channel Mapping**
 - 🔄 **Modular Translator Architecture (AWS, Google supported)**
 - 🖥 **GUI + CLI Mode**
@@ -81,7 +83,9 @@ The following diagram illustrates the recommended setup:
    - **Text-to-Speech:** AWS Polly generates spoken audio per language  
 
 3. **Audio Distribution**  
-   Each language connects to a dedicated Mumble channel.
+   Each language connects to a dedicated Mumble channel. The app can spin up and manage its own
+   embedded Mumble server automatically — channels, permissions (ACLs) and access are all
+   configured for you (see [🎧 Mumble Setup](#-mumble-setup) below).
 
 4. **Audience Access**  
    Listeners join their preferred language channel using:
@@ -223,14 +227,31 @@ Supported voices and languages:
 
 ## 🎧 Mumble Setup
 
-Detailed instructions:  
+Mumble setup is now **fully automated** — no Docker, manual server install, or manual
+channel/ACL configuration is needed.
+
+From the GUI, the app can:
+- **Download & install** a Mumble server binary locally (one click, no manual download).
+- **Start/stop** the embedded server for you.
+- **Automatically create and remove language channels** to match your configured target
+  languages, and apply the correct permissions (listen-only for the audience, speak access
+  for the AI translator) — no manual ACL/group setup required.
+
+This is the recommended, default setup and requires no manual steps beyond configuring your
+target languages in the GUI.
+
+Only if you want to connect to your **own existing/external Mumble server** instead of the
+embedded one, see the manual setup guide:  
 👉 [docs/MumbleSetup.md](docs/MumbleSetup.md)
 
 ---
 
 ## 💰 Cost Notice
 
-This project uses external cloud services for speech-to-text, translation, and text-to-speech (for example AWS or Google). Using these services may incur usage-based charges, quotas, or other billing implications depending on the provider and your account. Review pricing, quotas, and billing settings for each provider you enable before deploying to production.
+This project uses external cloud services for speech-to-text, translation, and text-to-speech
+(for example AWS or Google). Using these services may incur usage-based charges, quotas, or
+other billing implications depending on the provider and your account. Review pricing, quotas,
+and billing settings for each provider you enable before deploying to production.
 
 ---
 
@@ -265,9 +286,9 @@ make proto
 
 ## 🛣 Roadmap
 
-- [ ] Support additional translation providers (e.g. OpenAI, Google Gemini, Local models...)
-- [ ] Support additional Outputs (Web, Discord, etc.) 
-- [ ] Provdide automatic Mumble Server setup
+- [ ] Support additional translation providers (e.g. OpenAI, Google, Local models...)
+- [ ] Support additional Outputs (Web, Discord, etc.)
+- [x] Provdide automatic Mumble Server setup
 - [ ] Latency and performance optimizations
 
 ---

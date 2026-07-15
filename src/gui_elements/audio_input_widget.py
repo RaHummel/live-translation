@@ -48,7 +48,7 @@ class AudioInputWidget(QWidget):
         for device in devices:
             device_name = device['name']
             if device.get('host_api_name') is not None:
-                device_name += f':({device["host_api_name"]})'
+                device_name += f' ({device["host_api_name"]})'
             self.input_device.addItem(device_name, device['index'])
 
         select_device_in_combo(

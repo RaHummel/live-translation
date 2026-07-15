@@ -6,13 +6,14 @@ from pymumble_py3 import Mumble
 from pymumble_py3.constants import PYMUMBLE_CONN_STATE_CONNECTED
 
 from config.model.config_models import OutputSettings
+from constants import MUMBLE_TRANSLATOR_TOKEN, MUMBLE_TRANSLATOR_USERNAME_SUFFIX
 from translation import AudioReadableStream, SoundOutput
 
 LOGGER = logging.getLogger(__name__)
 
 
 class MumbleClient(SoundOutput):
-    username_postfix = 'ai_translator'
+    username_postfix = MUMBLE_TRANSLATOR_USERNAME_SUFFIX
     # Single executor for all MumbleClient instances to limit thread creation
     _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='MumbleAudio')
 
@@ -27,11 +28,14 @@ class MumbleClient(SoundOutput):
         self._output_settings = output_settings
         self._channel_name = self._output_settings.mumble_settings.language_channel_mapping[language]
 
+        self._username = language + '_' + MumbleClient.username_postfix
+
         self._mumble = Mumble(
             host=self._output_settings.mumble_settings.ip_address,
             port=self._output_settings.mumble_settings.port,
-            user=language + '_' + MumbleClient.username_postfix,
+            user=self._username,
             password='',
+            tokens=[MUMBLE_TRANSLATOR_TOKEN],
             reconnect=False,
         )
 
@@ -40,6 +44,7 @@ class MumbleClient(SoundOutput):
     def connect(self):
         """Connects to the Mumble server and moves to the target channel"""
         LOGGER.info('Connect to Mumble server')
+
         self._mumble.start()
         # Wait for the connection to be established
         self._mumble.is_ready()

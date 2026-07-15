@@ -8,7 +8,6 @@ import pyaudio
 from pyaudio import Stream
 
 from config.model.config_models import InputSettings
-from constants import HOST_API_NAMES
 from translation import SoundInput
 
 LOGGER = logging.getLogger(__name__)
@@ -68,11 +67,11 @@ class Microphone(SoundInput):
         else:
             self._audio_stream.stop_stream()
             self._audio_stream.close()
-        
+
         if self._pa is not None:
             self._pa.terminate()
             self._pa = None
-        
+
         self._audio_stream = None
         LOGGER.debug('Microphone stream stopped and PyAudio terminated.')
 
@@ -128,7 +127,10 @@ class Microphone(SoundInput):
             # Note: On MacOs hostApi is not available, so we check for its presence before filtering
             if device['maxInputChannels'] > 0 and device.get('hostApi') is not None and device.get('hostApi') >= 0:
                 host_api_id = device.get('hostApi')
-                host_api_name = HOST_API_NAMES.get(host_api_id)
+                try:
+                    host_api_name = pa.get_host_api_info_by_index(host_api_id)['name']
+                except Exception:
+                    host_api_name = None
                 devices.append({'name': device['name'], 'index': device['index'], 'host_api_name': host_api_name})
 
         pa.terminate()

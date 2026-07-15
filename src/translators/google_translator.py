@@ -6,6 +6,7 @@ import os
 import wave
 from typing import AsyncGenerator, Dict, Optional
 
+import google.auth
 from google.api_core.client_options import ClientOptions
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import speech_v2 as speech
@@ -18,30 +19,6 @@ from translation import SoundOutput, Translator
 from translators.translation_callbacks import TranslationCallbacks
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _resolve_project_id(credentials_path: str) -> Optional[str]:
-    """Determine the Google Cloud project ID from a credentials file or application default credentials."""
-    if credentials_path and os.path.exists(credentials_path):
-        try:
-            with open(credentials_path, 'r', encoding='utf-8') as f:
-                project_id = json.load(f).get('project_id')
-            if project_id:
-                LOGGER.debug(f'Resolved project_id from credentials file: {project_id}')
-                return project_id
-        except Exception as e:
-            LOGGER.debug(f'Could not read project_id from credentials file: {e}')
-
-    try:
-        import google.auth
-
-        _, project_id = google.auth.default()
-        if project_id:
-            LOGGER.debug(f'Resolved project_id from google.auth: {project_id}')
-        return project_id
-    except Exception as e:
-        LOGGER.debug(f'Could not determine project_id from google.auth: {e}')
-        return None
 
 
 class GoogleTranslator(Translator):
@@ -62,7 +39,7 @@ class GoogleTranslator(Translator):
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_settings.credentials_path
             LOGGER.debug(f'Set GOOGLE_APPLICATION_CREDENTIALS to {google_settings.credentials_path}')
 
-        self._project_id = _resolve_project_id(google_settings.credentials_path)
+        self._project_id = self._resolve_project_id(google_settings.credentials_path)
 
         # Async clients must be created in the active translation loop.
         self._speech_client: Optional[speech.SpeechAsyncClient] = None
@@ -111,11 +88,6 @@ class GoogleTranslator(Translator):
             self._translate_client = None
             self._tts_client = None
             LOGGER.debug('Google Translator shutdown complete.')
-
-    @staticmethod
-    def _normalize_language_code(language_code: str) -> str:
-        """Maps locale-like codes to a broadly supported base language for Google Translate."""
-        return language_code.split('-')[0]
 
     def _get_endpointing_sensitivity(self):
         endpointing_map = {
@@ -297,3 +269,30 @@ class GoogleTranslator(Translator):
             LOGGER.error(f'Google API Error in TTS for {language}: {e}')
         except Exception as e:
             LOGGER.error(f'Error during Google TTS or playback for language {language}: {e}', exc_info=True)
+
+    @staticmethod
+    def _resolve_project_id(credentials_path: str) -> Optional[str]:
+        """Determine the Google Cloud project ID from a credentials file or application default credentials."""
+        if credentials_path and os.path.exists(credentials_path):
+            try:
+                with open(credentials_path, 'r', encoding='utf-8') as f:
+                    project_id = json.load(f).get('project_id')
+                if project_id:
+                    LOGGER.debug(f'Resolved project_id from credentials file: {project_id}')
+                    return project_id
+            except Exception as e:
+                LOGGER.debug(f'Could not read project_id from credentials file: {e}')
+
+        try:
+            _, project_id = google.auth.default()
+            if project_id:
+                LOGGER.debug(f'Resolved project_id from google.auth: {project_id}')
+            return project_id
+        except Exception as e:
+            LOGGER.debug(f'Could not determine project_id from google.auth: {e}')
+            return None
+
+    @staticmethod
+    def _normalize_language_code(language_code: str) -> str:
+        """Maps locale-like codes to a broadly supported base language for Google Translate."""
+        return language_code.split('-')[0]

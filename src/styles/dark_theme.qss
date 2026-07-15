@@ -26,18 +26,19 @@ QGroupBox {
     background-color: #252525;
     border: 1px solid #3a3a3a;
     border-radius: 8px;
-    margin-top: 20px;
-    padding: 15px 10px 10px 10px;
+    margin-top: 6px;
+    padding: 10px 8px 6px 8px;
     font-weight: 600;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 8px;
-    margin-left: 8px;
+    left: 12px;
+    top: -2px;
+    padding: 0 4px;
     color: #4a9eff;
-    background-color: transparent;
+    background-color: #1e1e1e;
 }
 
 /* --- Tabs --- */
@@ -80,7 +81,7 @@ QPushButton {
     color: #ffffff;
     border: none;
     border-radius: 6px;
-    padding: 8px 16px;
+    padding: 5px 12px;
     font-weight: 600;
 }
 
@@ -118,7 +119,7 @@ QLineEdit, QTextEdit, QPlainTextEdit, QListWidget {
     color: #e0e0e0;
     border: 1px solid #3a3a3a;
     border-radius: 6px;
-    padding: 8px;
+    padding: 5px;
     selection-background-color: #4a9eff;
 }
 
@@ -177,7 +178,7 @@ QComboBox {
     color: #e0e0e0;
     border: 1px solid #3a3a3a;
     border-radius: 6px;
-    padding: 6px 30px 6px 10px;
+    padding: 5px 30px 5px 10px;
     min-height: 20px;
 }
 

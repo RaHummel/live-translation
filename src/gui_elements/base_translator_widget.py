@@ -2,7 +2,7 @@ import logging
 from abc import abstractmethod
 from typing import Dict, List
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QLineEdit,
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from config.model.config_models import LanguageSettings
 from constants import TRANSLATOR
+from utils.language_names import display_name, sorted_by_display_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,8 +40,10 @@ class BaseTranslatorProviderWidget(QWidget):
         super().__init__(parent)
         self.target_lang_checkboxes: Dict[str, QCheckBox] = {}
         self.voice_selectors: Dict[str, QComboBox] = {}
+        self.target_lang_containers: Dict[str, QWidget] = {}
         self.language_engines_state: Dict[str, str] = {}
         self.language_voices_state: Dict[str, str] = {}
+        self._highlight_timer: QTimer | None = None
 
     @abstractmethod
     def _get_provider_key(self) -> str:
@@ -107,6 +111,14 @@ class BaseTranslatorProviderWidget(QWidget):
         target_lang_label = QLabel('Translation Target Languages:')
         language_settings_layout.addWidget(target_lang_label)
 
+        self.target_lang_search = QLineEdit()
+        self.target_lang_search.setPlaceholderText('Search language…')
+        self.target_lang_search.setClearButtonEnabled(True)
+        self.target_lang_search.setStatusTip('Scroll to a target language.')
+        self.target_lang_search.setToolTip('Type a display name to automatically scroll to the matching language.')
+        self.target_lang_search.textChanged.connect(self._on_search_text_changed)
+        language_settings_layout.addWidget(self.target_lang_search)
+
         # Target grid in scroll area
         self.target_scroll_area = QScrollArea(widgetResizable=True)
         self.target_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -155,22 +167,24 @@ class BaseTranslatorProviderWidget(QWidget):
         clear_layout(self.target_grid_layout)
         self.target_lang_checkboxes.clear()
         self.voice_selectors.clear()
+        self.target_lang_containers.clear()
 
         provider_key = self._get_provider_key()
         if selected_engine not in TRANSLATOR[provider_key]:
             return
 
-        languages_for_engine = sorted(TRANSLATOR[provider_key][selected_engine].keys())
+        languages_for_engine = sorted_by_display_name(TRANSLATOR[provider_key][selected_engine].keys())
 
         row = 0
         col = 0
         num_cols = 2
 
         for lang in languages_for_engine:
+            lang_label = display_name(lang)
             lang_selection_layout = QVBoxLayout()
             lang_selection_layout.setContentsMargins(0, 0, 0, 0)
 
-            checkbox = QCheckBox(lang)
+            checkbox = QCheckBox(lang_label)
 
             assigned_engine = self.language_engines_state.get(lang)
             is_checked = assigned_engine is not None
@@ -183,7 +197,7 @@ class BaseTranslatorProviderWidget(QWidget):
             checkbox.setEnabled(not is_source and not different_engine)
 
             if different_engine:
-                checkbox.setText(f'{lang} (in {assigned_engine})')
+                checkbox.setText(f'{lang_label} (in {assigned_engine})')
                 font = checkbox.font()
                 font.setStrikeOut(True)
                 checkbox.setFont(font)
@@ -191,7 +205,7 @@ class BaseTranslatorProviderWidget(QWidget):
             elif is_source:
                 checkbox.setToolTip('Cannot select source language as target.')
             else:
-                checkbox.setToolTip(f'Enable translation to {lang}.')
+                checkbox.setToolTip(f'Enable translation to {lang_label}.')
 
             checkbox.toggled.connect(lambda state, la=lang, eng=selected_engine: self._on_lang_toggled(la, state, eng))
 
@@ -217,7 +231,9 @@ class BaseTranslatorProviderWidget(QWidget):
             lang_selection_layout.addWidget(checkbox)
             lang_selection_layout.addWidget(voice_selector)
 
-            self.target_grid_layout.addLayout(lang_selection_layout, row, col)
+            lang_container = QWidget()
+            lang_container.setLayout(lang_selection_layout)
+            self.target_grid_layout.addWidget(lang_container, row, col)
 
             col += 1
             if col >= num_cols:
@@ -226,6 +242,7 @@ class BaseTranslatorProviderWidget(QWidget):
 
             self.target_lang_checkboxes[lang] = checkbox
             self.voice_selectors[lang] = voice_selector
+            self.target_lang_containers[lang] = lang_container
 
         if col > 0:
             self.target_grid_layout.addItem(
@@ -240,6 +257,32 @@ class BaseTranslatorProviderWidget(QWidget):
             1,
             num_cols,
         )
+
+    def _on_search_text_changed(self, text: str) -> None:
+        """Scrolls the target-language grid to the first language whose display name matches *text*."""
+        search_text = text.strip().lower()
+        if not search_text:
+            return
+
+        for lang, _checkbox in self.target_lang_checkboxes.items():
+            if search_text in display_name(lang).lower():
+                container = self.target_lang_containers.get(lang)
+                if container is not None:
+                    self.target_scroll_area.ensureWidgetVisible(container)
+                    self._highlight_container(container)
+                break
+
+    def _highlight_container(self, container: QWidget) -> None:
+        """Briefly highlights *container* so the scrolled-to result is visually noticeable."""
+        if self._highlight_timer is not None:
+            self._highlight_timer.stop()
+
+        container.setStyleSheet('background-color: rgba(0, 102, 204, 90); border-radius: 4px;')
+
+        self._highlight_timer = QTimer(self)
+        self._highlight_timer.setSingleShot(True)
+        self._highlight_timer.timeout.connect(lambda: container.setStyleSheet(''))
+        self._highlight_timer.start(1000)
 
     def _on_lang_toggled(self, lang: str, state: bool, engine: str) -> None:
         if state:

@@ -1,9 +1,18 @@
+import sys
+
 INPUT_CHANNELS = 1  # Mono is sufficient for translation and seems to work best
 INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 16000
 CHUNK_LEN = 1024
 
 OUTPUT = ['speaker', 'mumble']
+
+MURMUR_BINARY = 'mumble-server.exe' if sys.platform == 'win32' else 'murmurd'
+MUMBLE_DEFAULT_PORT = 64738
+# Username suffix used by AI translator clients (e.g. "en_ai_translator").
+MUMBLE_TRANSLATOR_USERNAME_SUFFIX = 'ai_translator'
+# Access token AI translator clients present when connecting
+MUMBLE_TRANSLATOR_TOKEN = 'live-translation-ai-translator'
 
 AWS_REGIONS = {
     'us-east-1': 'N. Virginia',
@@ -558,12 +567,4 @@ GOOGLE_ENDPOINTING_OPTIONS = {
     'Normal': 'standard',
     'Fast': 'short',
     'Max': 'supershort',
-}
-
-# Windows Audio Host APIs
-HOST_API_NAMES = {
-    0: 'MME',  # (Windows Multimedia Extension
-    1: 'DirectSound',
-    2: 'WASAPI',  # (Windows Audio Session API)
-    3: 'ASIO',  # (Audio Stream Input/Output)
 }

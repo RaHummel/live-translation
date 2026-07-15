@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from config.model.config_models import GoogleSettings
 from constants import GOOGLE_ENDPOINTING_OPTIONS, GOOGLE_STT_MODELS, GOOGLE_STT_REGIONS
 from gui_elements.base_translator_widget import BaseTranslatorProviderWidget
+from utils.language_names import display_name, sorted_by_display_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +41,46 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         self._setup_ui()
         self._check_google_credentials()
 
+    # Backwards-compatible property aliases
+    @property
+    def google_source_lang(self) -> QComboBox:
+        return self._get_source_language_combo()
+
+    @property
+    def google_engine_select(self) -> QComboBox:
+        return self.engine_select
+
+    @property
+    def google_target_lang_checkboxes(self) -> Dict[str, object]:
+        return self.target_lang_checkboxes
+
+    @property
+    def google_voice_selectors(self) -> Dict[str, QComboBox]:
+        return self.voice_selectors
+
+    def update_settings(self, google_settings: GoogleSettings) -> None:
+        """Updates the Google settings in the widget."""
+        region = google_settings.region
+        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_STT_REGIONS[region]})')
+        self._get_source_language_combo()
+        self._set_source_language(google_settings.source_language)
+        self._credentials_path = google_settings.credentials_path
+        self.google_endpointing_select.setCurrentText(
+            self._endpointing_label_for_value(google_settings.endpointing_sensitivity)
+        )
+        self._apply_target_language_state(google_settings.target_languages)
+        self._google_settings = google_settings
+        self._check_google_credentials()
+
+    def get_credentials_path(self) -> str:
+        return self._credentials_path
+
+    def get_region(self) -> str:
+        return self.google_region_select.currentData()
+
+    def get_endpointing_sensitivity(self) -> str:
+        return GOOGLE_ENDPOINTING_OPTIONS[self.google_endpointing_select.currentText()]
+
     def _get_provider_key(self) -> str:
         return 'google'
 
@@ -48,7 +89,7 @@ class GoogleWidget(BaseTranslatorProviderWidget):
 
     def _get_source_language(self) -> str:
         if self._source_lang_combo:
-            return self._source_lang_combo.currentText()
+            return self._source_lang_combo.currentData() or self._google_settings.source_language
         return self._google_settings.source_language
 
     def _get_stt_model_for_region(self, region: Optional[str] = None) -> str:
@@ -69,27 +110,37 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         if self._source_lang_combo is None:
             return
         model = self._get_stt_model_for_region()
-        previous = self._source_lang_combo.currentText()
-        languages = sorted(GOOGLE_STT_MODELS.get(model, []))
+        previous = self._source_lang_combo.currentData()
+        languages = sorted_by_display_name(GOOGLE_STT_MODELS.get(model, []))
         self._source_lang_combo.blockSignals(True)
         self._source_lang_combo.clear()
-        self._source_lang_combo.addItems(languages)
+        for lang in languages:
+            self._source_lang_combo.addItem(display_name(lang), lang)
         if previous in languages:
-            self._source_lang_combo.setCurrentText(previous)
+            self._set_source_language(previous)
         self._source_lang_combo.blockSignals(False)
-        self._update_target_languages(self._source_lang_combo.currentText())
+        self._update_target_languages(self._get_source_language())
 
     def _get_source_language_combo(self) -> QComboBox:
         if self._source_lang_combo is None:
             self._source_lang_combo = QComboBox()
             self._source_lang_combo.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             model = self._get_stt_model_for_region(self._google_settings.region)
-            languages = sorted(GOOGLE_STT_MODELS.get(model, []))
-            self._source_lang_combo.addItems(languages)
-            self._source_lang_combo.setCurrentText(self._google_settings.source_language)
+            languages = sorted_by_display_name(GOOGLE_STT_MODELS.get(model, []))
+            for lang in languages:
+                self._source_lang_combo.addItem(display_name(lang), lang)
+            self._set_source_language(self._google_settings.source_language)
             self._source_lang_combo.setStatusTip('Select the language spoken by the input audio.')
-            self._source_lang_combo.currentTextChanged.connect(self._update_target_languages)
+            self._source_lang_combo.currentIndexChanged.connect(
+                lambda _index: self._update_target_languages(self._get_source_language())
+            )
         return self._source_lang_combo
+
+    def _set_source_language(self, lang_code: str) -> None:
+        if self._source_lang_combo is not None:
+            index = self._source_lang_combo.findData(lang_code)
+            if index >= 0:
+                self._source_lang_combo.setCurrentIndex(index)
 
     def _build_connection_ui(self, parent_layout: QVBoxLayout) -> None:
         google_connection_group = QGroupBox('Google Connection Settings')
@@ -151,46 +202,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         self.google_endpointing_select.setStatusTip('Faster Response = may cut off speech earlier.')
         layout.addWidget(self.google_endpointing_select)
 
-    def update_settings(self, google_settings: GoogleSettings) -> None:
-        """Updates the Google settings in the widget."""
-        region = google_settings.region
-        self.google_region_select.setCurrentText(f'{region} ({GOOGLE_STT_REGIONS[region]})')
-        source_lang_combo = self._get_source_language_combo()
-        source_lang_combo.setCurrentText(google_settings.source_language)
-        self._credentials_path = google_settings.credentials_path
-        self.google_endpointing_select.setCurrentText(
-            self._endpointing_label_for_value(google_settings.endpointing_sensitivity)
-        )
-        self._apply_target_language_state(google_settings.target_languages)
-        self._google_settings = google_settings
-        self._check_google_credentials()
-
-    # Backwards-compatible property aliases
-    @property
-    def google_source_lang(self) -> QComboBox:
-        return self._get_source_language_combo()
-
-    @property
-    def google_engine_select(self) -> QComboBox:
-        return self.engine_select
-
-    @property
-    def google_target_lang_checkboxes(self) -> Dict[str, object]:
-        return self.target_lang_checkboxes
-
-    @property
-    def google_voice_selectors(self) -> Dict[str, QComboBox]:
-        return self.voice_selectors
-
-    def get_credentials_path(self) -> str:
-        return self._credentials_path
-
-    def get_region(self) -> str:
-        return self.google_region_select.currentData()
-
-    def get_endpointing_sensitivity(self) -> str:
-        return GOOGLE_ENDPOINTING_OPTIONS[self.google_endpointing_select.currentText()]
-
     def _setup_ui(self) -> None:
         main_v_layout = QVBoxLayout(self)
         main_v_layout.setContentsMargins(0, 0, 0, 0)
@@ -231,6 +242,9 @@ class GoogleWidget(BaseTranslatorProviderWidget):
             self._credentials_path = current_path
             self._setup_ui()
 
+        def get_credentials_path(self) -> str:
+            return self.path_input.text()
+
         def _setup_ui(self) -> None:
             main_layout = QVBoxLayout(self)
             form_layout = QFormLayout()
@@ -263,6 +277,3 @@ class GoogleWidget(BaseTranslatorProviderWidget):
             )
             if file_path:
                 self.path_input.setText(file_path)
-
-        def get_credentials_path(self) -> str:
-            return self.path_input.text()
