@@ -157,6 +157,8 @@ class ConfigManager:
                 ip_address=raw_mumble.get('ip_address', 'localhost'),
                 port=raw_mumble.get('port', 64738),
                 language_channel_mapping=raw_mumble.get('language_channel_mapping', {}),
+                use_custom_server=raw_mumble.get('use_custom_server', False),
+                superuser_password=raw_mumble.get('superuser_password', None),
             ),
         )
 

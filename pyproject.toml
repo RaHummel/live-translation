@@ -1,6 +1,6 @@
 [project]
 name = "live-translation"
-version = "1.1.1"
+version = "1.2.0"
 requires-python = ">=3.14"
 description = "Live translation application"
 authors = [{name = "Matthias Kuczera"}, {name = "Raimund Hummel"},]
@@ -8,6 +8,7 @@ license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "pymumble",
     "opuslib",
+    "cryptography~=49.0",
     "pyaudio~=0.2",
     "boto3~=1.40",
     "PySide6~=6.9",
@@ -16,6 +17,7 @@ dependencies = [
     "google-cloud-speech~=2.26",
     "google-cloud-translate~=3.14",
     "google-cloud-texttospeech~=2.15",
+    "langcodes[data]~=3.5",
 ]
 
 [dependency-groups]

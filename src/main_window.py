@@ -1,5 +1,6 @@
 import logging
 import os
+import secrets
 
 from PySide6.QtCore import QFile, QSize, Qt, QTextStream, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
@@ -30,11 +31,15 @@ from config.model.config_models import (
     TranslatorSettings,
     UserConfig,
 )
+from controllers.mumble_server_controller import MumbleServerController
 from controllers.translation_controller import TranslationController
+from gui_elements.about_dialog import AboutDialog
 from gui_elements.audio_input_widget import AudioInputWidget
 from gui_elements.audio_output_widget import AudioOutputWidget
 from gui_elements.live_output_widget import LiveOutputWidget
 from gui_elements.translator_widget import TranslatorWidget
+from utils.language_names import display_name
+from utils.mumble_paths import find_murmur_binary, resolve_murmur_dir
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +66,8 @@ class MainWindow(QMainWindow):
 
         # Initialize the controller
         self._controller = TranslationController()
+        self._murmur_dir = ConfigManager.get_app_config_dir() / 'murmur'
+        self._mumble_server_controller = MumbleServerController(self._murmur_dir, self)
 
         self._connect_signals()
 
@@ -76,9 +83,7 @@ class MainWindow(QMainWindow):
         """Connects all signals to their respective slots."""
         # Connect UI signals
         self.status_message_signal.connect(self._statusBar.showMessage)
-        self.status_message_signal.connect(self._statusBar.showMessage)
         self.status_label_signal.connect(self._update_status_label)
-        self.start_button_signal.connect(self.start_action.setEnabled)
         self.start_button_signal.connect(self.start_action.setEnabled)
         self.stop_button_signal.connect(self.stop_action.setEnabled)
 
@@ -93,6 +98,23 @@ class MainWindow(QMainWindow):
         self._controller.update_target_field_signal.connect(
             self.live_output_dashboard.update_target_transcription_field
         )
+
+        # Connect MumbleServerController signals
+        self._mumble_server_controller.status_changed.connect(lambda msg: self._statusBar.showMessage(msg, 3000))
+        self._mumble_server_controller.status_changed.connect(self.output_tab_widget.mumble_widget.set_server_status)
+        self._mumble_server_controller.server_started.connect(
+            lambda: self.output_tab_widget.mumble_widget.set_server_running(True)
+        )
+        self._mumble_server_controller.server_stopped.connect(
+            lambda: self.output_tab_widget.mumble_widget.set_server_running(False)
+        )
+        self._mumble_server_controller.server_error.connect(
+            lambda msg: QMessageBox.critical(self, 'Mumble Server Error', msg)
+        )
+
+        # Connect mumble widget manual server control buttons
+        self.output_tab_widget.mumble_widget.start_server_requested.connect(self._handle_manual_server_start)
+        self.output_tab_widget.mumble_widget.stop_server_requested.connect(self._mumble_server_controller.stop)
 
         LOGGER.debug('All signals connected.')
 
@@ -126,9 +148,17 @@ class MainWindow(QMainWindow):
         self.toggle_theme_action.setStatusTip('Switch between Dark and Light mode')
         self.toggle_theme_action.triggered.connect(self._toggle_theme)
 
+        self.about_action = QAction('About', self)
+        self.about_action.setStatusTip('Show About dialog')
+        self.about_action.triggered.connect(self._show_about_dialog)
+
         self.open_log_folder_action = QAction('Open Log Folder', self)
         self.open_log_folder_action.setStatusTip('Open the folder that contains application log files')
         self.open_log_folder_action.triggered.connect(self._open_log_folder)
+
+        self.open_config_folder_action = QAction('Open Config Folder', self)
+        self.open_config_folder_action.setStatusTip('Open the folder that contains application configuration files')
+        self.open_config_folder_action.triggered.connect(self._open_config_folder)
 
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
@@ -140,9 +170,13 @@ class MainWindow(QMainWindow):
 
         options_menu = menu_bar.addMenu('&Options')
         options_menu.addAction(self.open_log_folder_action)
+        options_menu.addAction(self.open_config_folder_action)
 
         view_menu = menu_bar.addMenu('&View')
         view_menu.addAction(self.toggle_theme_action)
+
+        help_menu = menu_bar.addMenu('&Help')
+        help_menu.addAction(self.about_action)
 
     def _create_tool_bar(self):
         tool_bar = QToolBar('File Actions')
@@ -187,6 +221,14 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._statusBar)
         self._statusBar.showMessage('Application Ready', 3000)
 
+    def _show_about_dialog(self) -> None:
+        try:
+            dlg = AboutDialog(self)
+            dlg.exec()
+        except Exception as e:
+            LOGGER.exception('Failed to open About dialog: %s', e)
+            QMessageBox.warning(self, 'About', 'Could not open About dialog.')
+
     def _get_log_directory(self) -> str:
         log_dir = ConfigManager.get_app_config_dir() / 'logs'
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -197,6 +239,17 @@ class MainWindow(QMainWindow):
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(log_dir)):
             LOGGER.error(f'Could not open log directory: {log_dir}')
             QMessageBox.warning(self, 'Open Log Folder', f'Could not open log folder:\n{log_dir}')
+
+    def _get_config_directory(self) -> str:
+        config_dir = ConfigManager.get_app_config_dir()
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return str(config_dir)
+
+    def _open_config_folder(self) -> None:
+        config_dir = self._get_config_directory()
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(config_dir)):
+            LOGGER.error(f'Could not open config directory: {config_dir}')
+            QMessageBox.warning(self, 'Open Config Folder', f'Could not open config folder:\n{config_dir}')
 
     def _load_config(self):
         file_path, _ = QFileDialog.getOpenFileName(self, 'Select configuration file', '', 'JSON Files (*.json)')
@@ -261,6 +314,8 @@ class MainWindow(QMainWindow):
                 input_channels=self.audio_tab_widget.input_channels.value(),
                 input_sample_rate=self.audio_tab_widget.input_sample_rate.value(),
             )
+            mumble_widget = self.output_tab_widget.mumble_widget
+            use_custom_server = mumble_widget.use_custom_server
             output_settings = OutputSettings(
                 output_method=self.output_tab_widget.output_method.currentText(),
                 output_sample_rate=self.output_tab_widget.output_sample_rate.value(),
@@ -270,9 +325,11 @@ class MainWindow(QMainWindow):
                     output_device_index=self.output_tab_widget.speaker_widget.output_device.currentData(),
                 ),
                 mumble_settings=MumbleSettings(
-                    ip_address=self.output_tab_widget.mumble_widget.mumble_ip.text(),
-                    port=int(self.output_tab_widget.mumble_widget.mumble_port.text()),
-                    language_channel_mapping=self.output_tab_widget.mumble_widget.get_current_mappings(),
+                    ip_address=mumble_widget.mumble_ip.text() if use_custom_server else 'localhost',
+                    port=int(mumble_widget.mumble_port.text()),
+                    language_channel_mapping=mumble_widget.get_current_mappings(),
+                    use_custom_server=use_custom_server,
+                    superuser_password=self._config_manager.config.output_settings.mumble_settings.superuser_password,
                 ),
             )
 
@@ -308,13 +365,13 @@ class MainWindow(QMainWindow):
                 translator=self.translator_tab_widget.translator_select.currentText(),
                 aws_settings=AWSSettings(
                     region=self.translator_tab_widget.aws_tab_widget.aws_region_select.currentData(),
-                    source_language=self.translator_tab_widget.aws_tab_widget.aws_source_lang.currentText(),
+                    source_language=self.translator_tab_widget.aws_tab_widget.aws_source_lang.currentData(),
                     show_source_transcript=self.live_output_dashboard.show_source_transcript_checkbox.isChecked(),
                     target_languages=aws_target_languages,
                 ),
                 google_settings=GoogleSettings(
                     credentials_path=self.translator_tab_widget.google_tab_widget.get_credentials_path(),
-                    source_language=self.translator_tab_widget.google_tab_widget.google_source_lang.currentText(),
+                    source_language=self.translator_tab_widget.google_tab_widget.google_source_lang.currentData(),
                     show_source_transcript=self.live_output_dashboard.show_source_transcript_checkbox.isChecked(),
                     target_languages=google_target_languages,
                     endpointing_sensitivity=self.translator_tab_widget.google_tab_widget.get_endpointing_sensitivity(),
@@ -335,14 +392,110 @@ class MainWindow(QMainWindow):
         # Re-apply provider-specific transcript visibility from TranslatorSettings when switching tabs.
         self.live_output_dashboard.update_settings(self.translator_tab_widget.get_translator_settings())
 
+    def _get_active_target_languages(self) -> set[str]:
+        """Collect all currently checked target language keys from the active translator widget."""
+        provider = self.translator_tab_widget.translator_select.currentText()
+        if provider == 'aws':
+            widget = self.translator_tab_widget.aws_tab_widget
+        else:
+            widget = self.translator_tab_widget.google_tab_widget
+        return {lang for lang, checkbox in widget.target_lang_checkboxes.items() if checkbox.isChecked()}
+
     def _handle_start_button(self):
         """Delegates service startup to the controller."""
         try:
             self.live_output_dashboard.clear_transcripts()
             current_config = self._collect_config_data()
+
+            # Auto-start embedded mumble server if applicable
+            if (
+                current_config.output_settings.output_method == 'mumble'
+                and not current_config.output_settings.mumble_settings.use_custom_server
+                and find_murmur_binary(resolve_murmur_dir(self._murmur_dir)) is not None
+            ):
+                self._ensure_mumble_server_started(current_config)
+                return  # controller.start_service is called after server_started signal
+
             self._controller.start_service(current_config)
         except Exception as e:
             QMessageBox.warning(self, 'Validation Error', str(e))
+
+    def _ensure_mumble_server_started(self, config: UserConfig):
+        """Ensure the embedded mumble server is running and its language channels are
+        created, then start translation.  Sequence: start server (if needed) →
+        sync channels → start_service.  Translation only starts once channels exist.
+        """
+        mumble_settings = config.output_settings.mumble_settings
+        first_init = mumble_settings.superuser_password is None
+
+        if first_init:
+            password = secrets.token_urlsafe(16)
+            mumble_settings.superuser_password = password
+            self._config_manager.config.output_settings.mumble_settings.superuser_password = password
+            self._config_manager.store_config(self._config_manager.config)
+            LOGGER.info('Generated new superuser password and saved config.')
+        else:
+            password = mumble_settings.superuser_password
+            assert password is not None  # superuser_password is set when first_init=False
+
+        def _sync_channels_then_start():
+            langs = self._get_active_target_languages()
+
+            def _on_synced():
+                self._mumble_server_controller.channels_synced.disconnect(_on_synced)
+                self._mumble_server_controller.channels_sync_error.disconnect(_on_sync_error)
+                # Embedded server channels are named after the language display name
+                # (see MumbleChannelManager) — populate the mapping so MumbleClient
+                # can resolve the right channel when connecting.
+                config.output_settings.mumble_settings.language_channel_mapping = {
+                    lang: display_name(lang) for lang in langs
+                }
+                self._controller.start_service(config)
+
+            def _on_sync_error(msg: str):
+                self._mumble_server_controller.channels_synced.disconnect(_on_synced)
+                self._mumble_server_controller.channels_sync_error.disconnect(_on_sync_error)
+                QMessageBox.critical(self, 'Mumble Channel Error', f'Could not create Mumble channels:\n{msg}')
+
+            self._mumble_server_controller.channels_synced.connect(_on_synced)
+            self._mumble_server_controller.channels_sync_error.connect(_on_sync_error)
+            LOGGER.debug('Syncing Mumble channels: %s', langs)
+            self._mumble_server_controller.sync_channels(langs)
+
+        if self._mumble_server_controller.is_running():
+            _sync_channels_then_start()
+            return
+
+        # Start server; sync channels and launch translation once server is ready
+        def _on_started():
+            self._mumble_server_controller.server_started.disconnect(_on_started)
+            self._mumble_server_controller.server_error.disconnect(_on_error)
+            _sync_channels_then_start()
+
+        def _on_error(msg: str):
+            self._mumble_server_controller.server_started.disconnect(_on_started)
+            self._mumble_server_controller.server_error.disconnect(_on_error)
+            QMessageBox.critical(self, 'Mumble Server Error', f'Could not start Mumble server:\n{msg}')
+
+        self._mumble_server_controller.server_started.connect(_on_started)
+        self._mumble_server_controller.server_error.connect(_on_error)
+        self._mumble_server_controller.start(password, first_init=first_init)
+
+    def _handle_manual_server_start(self):
+        """Handles manual server start from the mumble widget button."""
+        mumble_settings = self._config_manager.config.output_settings.mumble_settings
+        first_init = mumble_settings.superuser_password is None
+
+        if first_init:
+            password = secrets.token_urlsafe(16)
+            mumble_settings.superuser_password = password
+            self._config_manager.store_config(self._config_manager.config)
+            LOGGER.info('Generated new superuser password and saved config.')
+        else:
+            password = mumble_settings.superuser_password
+            assert password is not None  # superuser_password is set when first_init=False
+
+        self._mumble_server_controller.start(password, first_init=first_init)
 
     def _handle_stop_button(self):
         """Delegates service stop to the controller."""
@@ -353,6 +506,7 @@ class MainWindow(QMainWindow):
         LOGGER.info('Application closing. Initiating graceful shutdown.')
         self.stop_action.setEnabled(False)
         self._controller.stop_service()
+        self._mumble_server_controller.stop()
         event.accept()
 
     def _toggle_theme(self):

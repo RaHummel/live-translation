@@ -40,6 +40,49 @@ class Speaker(SoundOutput):
             'Speaker client for device "%s" (index: %d) initialized.', self._output_device['name'], self._device_index
         )
 
+    async def play(self, output_stream: AudioReadableStream):
+        """Enqueues audio for sequential playback. Starts the consumer task on first call."""
+        await self._queue.put(output_stream)
+        if self._consumer_task is None or self._consumer_task.done():
+            self._consumer_task = asyncio.create_task(self._consume_queue())
+
+    def stop_audio_stream(self):
+        """Signals the currently playing audio stream to stop and clears the queue."""
+        # Clear pending queue
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+        if self._consumer_task and not self._consumer_task.done():
+            self._consumer_task.cancel()
+            self._consumer_task = None
+
+        if self._is_playing:
+            LOGGER.debug('Requesting speaker audio stream to stop.')
+            self._is_playing = False
+        else:
+            LOGGER.debug('No active audio stream to stop.')
+
+        # Close the persistent PyAudio stream only at final stop
+        if self._audio_stream and self._stream_initialized:
+            try:
+                if self._audio_stream.is_active():
+                    self._audio_stream.stop_stream()
+                    LOGGER.debug('PyAudio stream stopped.')
+                self._audio_stream.close()
+                self._audio_stream = None
+                self._stream_initialized = False
+                LOGGER.debug('PyAudio stream closed and cleaned up.')
+            except Exception as e:
+                LOGGER.error(f'Error closing PyAudio stream: {e}', exc_info=True)
+
+        if self._pa:
+            self._pa.terminate()
+            LOGGER.debug('PyAudio instance terminated.')
+
     def _ensure_audio_stream_initialized(self) -> pyaudio.Stream:
         """Lazily creates and starts a persistent PyAudio output stream on first use."""
         if self._audio_stream is None or not self._stream_initialized:
@@ -59,12 +102,6 @@ class Speaker(SoundOutput):
             LOGGER.debug('PyAudio speaker stream restarted.')
 
         return self._audio_stream
-
-    async def play(self, output_stream: AudioReadableStream):
-        """Enqueues audio for sequential playback. Starts the consumer task on first call."""
-        await self._queue.put(output_stream)
-        if self._consumer_task is None or self._consumer_task.done():
-            self._consumer_task = asyncio.create_task(self._consume_queue())
 
     async def _consume_queue(self):
         """Sequentially plays all queued audio streams."""
@@ -105,43 +142,6 @@ class Speaker(SoundOutput):
         finally:
             LOGGER.debug('Blocking audio playback loop finished.')
             # Note: Do not close streams here, let the async `play` method handle it for consistency.
-
-    def stop_audio_stream(self):
-        """Signals the currently playing audio stream to stop and clears the queue."""
-        # Clear pending queue
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except asyncio.QueueEmpty:
-                break
-
-        if self._consumer_task and not self._consumer_task.done():
-            self._consumer_task.cancel()
-            self._consumer_task = None
-
-        if self._is_playing:
-            LOGGER.debug('Requesting speaker audio stream to stop.')
-            self._is_playing = False
-        else:
-            LOGGER.debug('No active audio stream to stop.')
-
-        # Close the persistent PyAudio stream only at final stop
-        if self._audio_stream and self._stream_initialized:
-            try:
-                if self._audio_stream.is_active():
-                    self._audio_stream.stop_stream()
-                    LOGGER.debug('PyAudio stream stopped.')
-                self._audio_stream.close()
-                self._audio_stream = None
-                self._stream_initialized = False
-                LOGGER.debug('PyAudio stream closed and cleaned up.')
-            except Exception as e:
-                LOGGER.error(f'Error closing PyAudio stream: {e}', exc_info=True)
-
-        if self._pa:
-            self._pa.terminate()
-            LOGGER.debug('PyAudio instance terminated.')
 
     def _get_output_device(self, device_index: Optional[int]) -> Mapping:
         """Gets the output device information by index (preferred) or name."""

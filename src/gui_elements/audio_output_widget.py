@@ -86,6 +86,7 @@ class AudioOutputWidget(QWidget):
             self.output_method.setCurrentText(self._output_settings.output_method)
 
         main_layout.addWidget(self.output_stacked, 0)
+        main_layout.addStretch()
         self.setLayout(main_layout)
 
     def _update_output_fields(self, text: str):

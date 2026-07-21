@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from config.model.config_models import AWSSettings, GoogleSettings, TranslatorSettings
 from gui_elements.base_translator_widget import clear_layout
+from utils.language_names import display_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,61 +53,6 @@ class LiveOutputWidget(QWidget):
         for lang, is_checked in desired_target_states.items():
             self.update_target_transcript_outputs(lang, is_checked)
 
-    def _setup_ui(self):
-        live_outputs_layout = QVBoxLayout(self)
-        live_outputs_layout.setContentsMargins(0, 0, 0, 0)
-
-        transcripts_content = QWidget()
-        self.transcripts_tab_layout = QVBoxLayout(transcripts_content)
-
-        self.source_transcript_checkbox_layout = QHBoxLayout()
-        self.show_source_transcript_checkbox = QCheckBox('Show Source Language Transcript')
-        provider_settings = self._get_active_provider_settings(self._translator_settings)
-        self.show_source_transcript_checkbox.setChecked(provider_settings.show_source_transcript)
-        self.show_source_transcript_checkbox.setToolTip('Toggle visibility of the source language transcript.')
-        self.show_source_transcript_checkbox.setStatusTip('Enable or disable the source language transcript output.')
-        self.show_source_transcript_checkbox.toggled.connect(self._toggle_source_transcript_visibility)
-        self.source_transcript_checkbox_layout.addWidget(self.show_source_transcript_checkbox)
-        self.source_transcript_checkbox_layout.addStretch(1)
-
-        self.source_transcript_output = QTextEdit(readOnly=True)
-        self.source_transcript_output.setPlaceholderText('Source language transcript will appear here...')
-        self.source_transcript_output.setMinimumHeight(100)
-
-        self.transcripts_tab_layout.addLayout(self.source_transcript_checkbox_layout)
-        self.transcripts_tab_layout.addWidget(self.source_transcript_output)
-
-        separator_line = QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
-        separator_line.setFixedHeight(1)
-        self.transcripts_tab_layout.addWidget(separator_line)
-
-        self.target_transcripts_scroll_area = QScrollArea(widgetResizable=True)
-        self.target_transcripts_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.target_transcripts_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        self.target_transcripts_dynamic_content = QWidget()
-        self.target_transcripts_dynamic_layout = QVBoxLayout(self.target_transcripts_dynamic_content)
-        self.target_transcripts_scroll_area.setWidget(self.target_transcripts_dynamic_content)
-        self.transcripts_tab_layout.addWidget(self.target_transcripts_scroll_area, 1)
-
-        for lang_code, lang_setting in provider_settings.target_languages.items():
-            self.update_target_transcript_outputs(lang_code, lang_setting.show_transcript)
-
-        live_outputs_layout.addWidget(transcripts_content, 1)
-
-        self.setLayout(live_outputs_layout)
-
-    def _get_active_provider_settings(self, translator_settings: TranslatorSettings) -> AWSSettings | GoogleSettings:
-        if translator_settings.translator == 'google':
-            return translator_settings.google_settings
-        return translator_settings.aws_settings
-
-    def _toggle_source_transcript_visibility(self, checked: bool):
-        self.source_transcript_output.setVisible(checked)
-
-        if not checked:
-            self.source_transcript_output.clear()
-
     def update_target_transcript_outputs(self, lang_code: str, is_checked: bool) -> None:
         """
         Updates the target transcript output widgets based on the checkbox state.
@@ -119,14 +65,15 @@ class LiveOutputWidget(QWidget):
         """
         if is_checked:
             if lang_code not in self.target_transcript_widgets:
+                lang_label = display_name(lang_code)
                 lang_display_layout = QVBoxLayout()
-                checkbox = QCheckBox(f'Show Transcript ({lang_code})')
+                checkbox = QCheckBox(f'Show Transcript ({lang_label})')
                 checkbox.setChecked(True)
-                checkbox.setToolTip(f'Toggle visibility of the {lang_code} transcript.')
-                checkbox.setStatusTip(f'Enable or disable the {lang_code} transcript output.')
+                checkbox.setToolTip(f'Toggle visibility of the {lang_label} transcript.')
+                checkbox.setStatusTip(f'Enable or disable the {lang_label} transcript output.')
                 text_edit = QTextEdit()
                 text_edit.setReadOnly(True)
-                text_edit.setPlaceholderText(f'Translated transcript for {lang_code} will appear here...')
+                text_edit.setPlaceholderText(f'Translated transcript for {lang_label} will appear here...')
                 text_edit.setMinimumHeight(50)
                 text_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
 
@@ -215,6 +162,75 @@ class LiveOutputWidget(QWidget):
         self._trim_textedit_lines(text_edit)
         self._scroll_to_latest_entry(text_edit)
 
+    def append_source_transcript(self, text: str):
+        self.source_transcript_output.append(text)
+
+    def append_target_transcript(self, lang_code: str, text: str):
+        if lang_code in self.target_transcript_widgets:
+            self.target_transcript_widgets[lang_code].append(text)
+
+    def clear_transcripts(self):
+        """Clears all transcript output widgets."""
+        LOGGER.debug('Clearing all transcripts.')
+        self.source_transcript_output.clear()
+        for text_edit in self.target_transcript_widgets.values():
+            text_edit.clear()
+
+    def _setup_ui(self):
+        live_outputs_layout = QVBoxLayout(self)
+        live_outputs_layout.setContentsMargins(0, 0, 0, 0)
+
+        transcripts_content = QWidget()
+        self.transcripts_tab_layout = QVBoxLayout(transcripts_content)
+
+        self.source_transcript_checkbox_layout = QHBoxLayout()
+        self.show_source_transcript_checkbox = QCheckBox('Show Source Language Transcript')
+        provider_settings = self._get_active_provider_settings(self._translator_settings)
+        self.show_source_transcript_checkbox.setChecked(provider_settings.show_source_transcript)
+        self.show_source_transcript_checkbox.setToolTip('Toggle visibility of the source language transcript.')
+        self.show_source_transcript_checkbox.setStatusTip('Enable or disable the source language transcript output.')
+        self.show_source_transcript_checkbox.toggled.connect(self._toggle_source_transcript_visibility)
+        self.source_transcript_checkbox_layout.addWidget(self.show_source_transcript_checkbox)
+        self.source_transcript_checkbox_layout.addStretch(1)
+
+        self.source_transcript_output = QTextEdit(readOnly=True)
+        self.source_transcript_output.setPlaceholderText('Source language transcript will appear here...')
+        self.source_transcript_output.setMinimumHeight(100)
+
+        self.transcripts_tab_layout.addLayout(self.source_transcript_checkbox_layout)
+        self.transcripts_tab_layout.addWidget(self.source_transcript_output)
+
+        separator_line = QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        separator_line.setFixedHeight(1)
+        self.transcripts_tab_layout.addWidget(separator_line)
+
+        self.target_transcripts_scroll_area = QScrollArea(widgetResizable=True)
+        self.target_transcripts_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.target_transcripts_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.target_transcripts_dynamic_content = QWidget()
+        self.target_transcripts_dynamic_layout = QVBoxLayout(self.target_transcripts_dynamic_content)
+        self.target_transcripts_scroll_area.setWidget(self.target_transcripts_dynamic_content)
+        self.transcripts_tab_layout.addWidget(self.target_transcripts_scroll_area, 1)
+
+        for lang_code, lang_setting in provider_settings.target_languages.items():
+            self.update_target_transcript_outputs(lang_code, lang_setting.show_transcript)
+
+        live_outputs_layout.addWidget(transcripts_content, 1)
+
+        self.setLayout(live_outputs_layout)
+
+    def _get_active_provider_settings(self, translator_settings: TranslatorSettings) -> AWSSettings | GoogleSettings:
+        if translator_settings.translator == 'google':
+            return translator_settings.google_settings
+        return translator_settings.aws_settings
+
+    def _toggle_source_transcript_visibility(self, checked: bool):
+        self.source_transcript_output.setVisible(checked)
+
+        if not checked:
+            self.source_transcript_output.clear()
+
     @staticmethod
     def _scroll_to_latest_entry(text_edit: QTextEdit) -> None:
         """Ensure the newest appended line is visible in QTextEdit."""
@@ -236,17 +252,3 @@ class LiveOutputWidget(QWidget):
                 cursor.select(cursor.SelectionType.LineUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()
-
-    def append_source_transcript(self, text: str):
-        self.source_transcript_output.append(text)
-
-    def append_target_transcript(self, lang_code: str, text: str):
-        if lang_code in self.target_transcript_widgets:
-            self.target_transcript_widgets[lang_code].append(text)
-
-    def clear_transcripts(self):
-        """Clears all transcript output widgets."""
-        LOGGER.debug('Clearing all transcripts.')
-        self.source_transcript_output.clear()
-        for text_edit in self.target_transcript_widgets.values():
-            text_edit.clear()

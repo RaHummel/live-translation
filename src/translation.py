@@ -99,22 +99,6 @@ class Translation:
             self._loop.close()
             LOGGER.debug('Asyncio event loop closed.')
 
-    async def _run_translation(self):
-        """Single async entry point: runs the full translation pipeline and cleans up on exit."""
-        self._main_task = asyncio.current_task()
-        LOGGER.info('Translation process started.')
-        try:
-            await self._translator.start_translation(
-                language_to_output=self._target_language_mapping,
-                mic_stream=self._sound_input.get_audio_stream(self._shutdown_event),
-                shutdown_event=self._shutdown_event,
-            )
-            LOGGER.info('Translation process completed successfully.')
-        except asyncio.CancelledError:
-            LOGGER.debug('Main translation task was cancelled.')
-        finally:
-            self._clean_up()
-
     def stop(self):
         """
         Stops the translation process.
@@ -132,6 +116,22 @@ class Translation:
                 LOGGER.warning(f'Exception while waiting for main task: {e}')
         else:
             LOGGER.warning('Cannot stop translation: Loop is not running.')
+
+    async def _run_translation(self):
+        """Single async entry point: runs the full translation pipeline and cleans up on exit."""
+        self._main_task = asyncio.current_task()
+        LOGGER.info('Translation process started.')
+        try:
+            await self._translator.start_translation(
+                language_to_output=self._target_language_mapping,
+                mic_stream=self._sound_input.get_audio_stream(self._shutdown_event),
+                shutdown_event=self._shutdown_event,
+            )
+            LOGGER.info('Translation process completed successfully.')
+        except asyncio.CancelledError:
+            LOGGER.debug('Main translation task was cancelled.')
+        finally:
+            self._clean_up()
 
     async def _wait_for_main_task(self, timeout: float):
         if self._main_task and not self._main_task.done():

@@ -21,6 +21,8 @@ class MumbleSettings:
     ip_address: str
     port: int
     language_channel_mapping: Dict[str, str]
+    use_custom_server: bool = False
+    superuser_password: Optional[str] = None
 
 
 @dataclass

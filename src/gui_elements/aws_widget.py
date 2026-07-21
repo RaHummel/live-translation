@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from config.model.config_models import AWSSettings
 from constants import AWS_REGIONS, TRANSLATOR
 from gui_elements.base_translator_widget import BaseTranslatorProviderWidget
+from utils.language_names import display_name, sorted_by_display_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,35 @@ class AWSWidget(BaseTranslatorProviderWidget):
         self._setup_ui()
         self._check_aws_credentials()
 
+    # Backwards-compatible property aliases
+    @property
+    def aws_source_lang(self) -> QComboBox:
+        return self._get_source_language_combo()
+
+    @property
+    def aws_engine_select(self) -> QComboBox:
+        return self.engine_select
+
+    @property
+    def aws_target_lang_checkboxes(self) -> Dict[str, object]:
+        return self.target_lang_checkboxes
+
+    @property
+    def aws_voice_selectors(self) -> Dict[str, QComboBox]:
+        return self.voice_selectors
+
+    def update_settings(self, aws_settings: AWSSettings) -> None:
+        """Updates the AWS settings in the widget."""
+        self.aws_region_select.setCurrentText(f'{aws_settings.region} ({AWS_REGIONS[aws_settings.region]})')
+        self._get_source_language_combo()
+        self._set_source_language(aws_settings.source_language)
+        self._apply_target_language_state(aws_settings.target_languages)
+        self._aws_settings = aws_settings
+
+    # ------------------------------------------------------------------
+    # Private
+    # ------------------------------------------------------------------
+
     def _get_provider_key(self) -> str:
         return 'aws'
 
@@ -50,20 +80,31 @@ class AWSWidget(BaseTranslatorProviderWidget):
         return ['standard', 'neural']
 
     def _get_source_language(self) -> str:
-        return self._source_lang_combo.currentText() if self._source_lang_combo else self._aws_settings.source_language
+        if self._source_lang_combo:
+            return self._source_lang_combo.currentData() or self._aws_settings.source_language
+        return self._aws_settings.source_language
 
     def _get_source_language_combo(self) -> QComboBox:
         if self._source_lang_combo is None:
             self._source_lang_combo = QComboBox()
-            languages = sorted(
+            languages = sorted_by_display_name(
                 set(list(TRANSLATOR['aws']['standard'].keys()) + list(TRANSLATOR['aws']['neural'].keys()))
             )
-            self._source_lang_combo.addItems(languages)
-            self._source_lang_combo.setCurrentText(self._aws_settings.source_language)
+            for lang in languages:
+                self._source_lang_combo.addItem(display_name(lang), lang)
+            self._set_source_language(self._aws_settings.source_language)
             self._source_lang_combo.setStatusTip('Select the language spoken by the input audio.')
             self._source_lang_combo.setToolTip('Select the language spoken by the input audio.')
-            self._source_lang_combo.currentTextChanged.connect(self._update_target_languages)
+            self._source_lang_combo.currentIndexChanged.connect(
+                lambda _index: self._update_target_languages(self._get_source_language())
+            )
         return self._source_lang_combo
+
+    def _set_source_language(self, lang_code: str) -> None:
+        if self._source_lang_combo is not None:
+            index = self._source_lang_combo.findData(lang_code)
+            if index >= 0:
+                self._source_lang_combo.setCurrentIndex(index)
 
     def _build_connection_ui(self, parent_layout: QVBoxLayout) -> None:
         aws_connection_group = QGroupBox('AWS Connection Settings')
@@ -105,40 +146,6 @@ class AWSWidget(BaseTranslatorProviderWidget):
 
         parent_layout.addWidget(aws_connection_group)
 
-    def update_settings(self, aws_settings: AWSSettings) -> None:
-        """Updates the AWS settings in the widget."""
-        self.aws_region_select.setCurrentText(f'{aws_settings.region} ({AWS_REGIONS[aws_settings.region]})')
-        source_lang_combo = self._get_source_language_combo()
-        source_lang_combo.setCurrentText(aws_settings.source_language)
-        self._apply_target_language_state(aws_settings.target_languages)
-        self._aws_settings = aws_settings
-
-    # Backwards-compatible property aliases
-    @property
-    def aws_source_lang(self) -> QComboBox:
-        return self._get_source_language_combo()
-
-    @property
-    def aws_engine_select(self) -> QComboBox:
-        return self.engine_select
-
-    @property
-    def aws_target_lang_checkboxes(self) -> Dict[str, object]:
-        return self.target_lang_checkboxes
-
-    @property
-    def aws_voice_selectors(self) -> Dict[str, QComboBox]:
-        return self.voice_selectors
-
-    @staticmethod
-    def get_aws_cred_path() -> Tuple[str, str]:
-        aws_dir = os.path.expanduser('~/.aws')
-        return aws_dir, os.path.join(aws_dir, 'credentials')
-
-    # ------------------------------------------------------------------
-    # Private
-    # ------------------------------------------------------------------
-
     def _setup_ui(self) -> None:
         main_v_layout = QVBoxLayout(self)
         main_v_layout.setContentsMargins(0, 0, 0, 0)
@@ -178,6 +185,11 @@ class AWSWidget(BaseTranslatorProviderWidget):
             self._check_aws_credentials()
             LOGGER.info('AWS credentials updated or saved.')
 
+    @staticmethod
+    def get_aws_cred_path() -> Tuple[str, str]:
+        aws_dir = os.path.expanduser('~/.aws')
+        return aws_dir, os.path.join(aws_dir, 'credentials')
+
     class AWSCredentialsDialog(QDialog):
         """Dialog for entering and saving AWS credentials."""
 
@@ -188,6 +200,54 @@ class AWSWidget(BaseTranslatorProviderWidget):
             self._aws_path, self._credentials_path = AWSWidget.get_aws_cred_path()
             self._setup_ui()
             self._load_existing_credentials()
+
+        def accept(self) -> None:
+            access_key_id = self.access_key_id_input.text().strip()
+            secret_access_key = self.secret_access_key_input.text().strip()
+
+            if not access_key_id and not secret_access_key:
+                reply = QMessageBox.question(
+                    self,
+                    'Confirm Clear',
+                    'All fields are empty. Do you want to clear your AWS credentials and region files?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+
+            if (access_key_id or secret_access_key) and (not access_key_id or not secret_access_key):
+                QMessageBox.warning(
+                    self,
+                    'Input Error',
+                    'Both Access Key ID and Secret Access Key must be provided to save credentials.',
+                )
+                return
+
+            try:
+                os.makedirs(self._aws_path, exist_ok=True)
+
+                credentials_config = configparser.ConfigParser()
+                if os.path.exists(self._credentials_path):
+                    credentials_config.read(self._credentials_path)
+
+                if not access_key_id and not secret_access_key:
+                    if 'default' in credentials_config:
+                        del credentials_config['default']
+                else:
+                    credentials_config['default'] = {
+                        'aws_access_key_id': access_key_id,
+                        'aws_secret_access_key': secret_access_key,
+                    }
+
+                with open(self._credentials_path, 'w') as cred_file:
+                    credentials_config.write(cred_file)
+
+                LOGGER.debug('AWS credentials and config saved successfully.')
+                super().accept()
+            except Exception as e:
+                LOGGER.error(f'Failed to save AWS credentials/config: {e}')
+                QMessageBox.critical(self, 'Save Error', f'Failed to save AWS credentials/config: {e}')
 
         def _setup_ui(self) -> None:
             main_layout = QVBoxLayout(self)
@@ -244,51 +304,3 @@ class AWSWidget(BaseTranslatorProviderWidget):
                 except Exception as e:
                     LOGGER.warning(f'Could not read AWS credentials file "{self._credentials_path}": {e}')
                     QMessageBox.warning(self, 'Load Error', f'Could not read credentials file: {e}')
-
-        def accept(self) -> None:
-            access_key_id = self.access_key_id_input.text().strip()
-            secret_access_key = self.secret_access_key_input.text().strip()
-
-            if not access_key_id and not secret_access_key:
-                reply = QMessageBox.question(
-                    self,
-                    'Confirm Clear',
-                    'All fields are empty. Do you want to clear your AWS credentials and region files?',
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.No:
-                    return
-
-            if (access_key_id or secret_access_key) and (not access_key_id or not secret_access_key):
-                QMessageBox.warning(
-                    self,
-                    'Input Error',
-                    'Both Access Key ID and Secret Access Key must be provided to save credentials.',
-                )
-                return
-
-            try:
-                os.makedirs(self._aws_path, exist_ok=True)
-
-                credentials_config = configparser.ConfigParser()
-                if os.path.exists(self._credentials_path):
-                    credentials_config.read(self._credentials_path)
-
-                if not access_key_id and not secret_access_key:
-                    if 'default' in credentials_config:
-                        del credentials_config['default']
-                else:
-                    credentials_config['default'] = {
-                        'aws_access_key_id': access_key_id,
-                        'aws_secret_access_key': secret_access_key,
-                    }
-
-                with open(self._credentials_path, 'w') as cred_file:
-                    credentials_config.write(cred_file)
-
-                LOGGER.debug('AWS credentials and config saved successfully.')
-                super().accept()
-            except Exception as e:
-                LOGGER.error(f'Failed to save AWS credentials/config: {e}')
-                QMessageBox.critical(self, 'Save Error', f'Failed to save AWS credentials/config: {e}')
