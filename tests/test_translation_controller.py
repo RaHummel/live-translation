@@ -38,11 +38,11 @@ class TestTranslationController(unittest.TestCase):
         )
 
     @patch('controllers.translation_controller.AWSTranslator')
-    @patch('controllers.translation_controller.Speaker')
+    @patch('controllers.translation_controller.create_speaker_outputs')
     @patch('controllers.translation_controller.Microphone')
     @patch('controllers.translation_controller.Translation')
     @patch('controllers.translation_controller.threading.Thread')
-    def test_start_service_success_speaker(self, mock_thread, mock_translation, mock_mic, mock_speaker, mock_aws):
+    def test_start_service_success_speaker(self, mock_thread, mock_translation, mock_mic, mock_outputs, mock_aws):
         # Arrange
         translator_stub = TranslatorStub()
         speaker_stub = SoundOutputStub()
@@ -50,7 +50,7 @@ class TestTranslationController(unittest.TestCase):
         mock_translation_inst = MagicMock()
 
         mock_aws.return_value = translator_stub
-        mock_speaker.return_value = speaker_stub
+        mock_outputs.return_value = {'de-DE': speaker_stub}
         mock_mic.return_value = microphone_stub
         mock_translation.return_value = mock_translation_inst
 
@@ -59,7 +59,9 @@ class TestTranslationController(unittest.TestCase):
 
         # Assert
         mock_aws.assert_called_once()
-        mock_speaker.assert_called_once()
+        mock_outputs.assert_called_once_with(
+            self.config.output_settings, self.config.translator_settings.aws_settings.target_languages
+        )
         mock_mic.assert_called_once()
         mock_translation.assert_called_once_with(translator_stub, microphone_stub, {'de-DE': speaker_stub})
 

@@ -55,50 +55,22 @@ This usually means a required DLL is missing. Check that:
 - PortAudio is properly installed
 - Opus library is in system PATH
 
-#### PortAudio / PyAudio build (Windows, `uv`)
-If `uv sync` fails building `pyaudio` with a missing `portaudio.h` or similar errors, follow these steps:
+#### PortAudio / sounddevice (Windows, `uv`)
+The `sounddevice` wheel normally includes the required PortAudio binary on Windows, so no compiler
+or `vcpkg` installation should be necessary. Reinstall the locked dependency first:
 
-1. Ensure `vcpkg` is installed and bootstrapped (example path: `C:\tools\vcpkg`):
 ```powershell
-git clone https://github.com/microsoft/vcpkg.git C:\tools\vcpkg
-cd C:\tools\vcpkg
-.\bootstrap-vcpkg.bat
-```
-
-2. Set the `VCPKG_PATH` environment variable (system-wide requires Admin):
-```powershell
-# system-wide (Admin)
-Start-Process powershell -Verb RunAs
-# then in the elevated window:
-setx VCPKG_PATH "C:\tools\vcpkg" -m
-
-# OR for current user (no Admin)
-setx VCPKG_PATH "C:\tools\vcpkg"
-```
-
-3. Install PortAudio via `vcpkg` for x64:
-```powershell
-cd C:\tools\vcpkg
-.\vcpkg.exe install portaudio:x64-windows
-.\vcpkg.exe list | Select-String portaudio
-```
-
-4. (Optional but effective) For the current terminal session add the vcpkg include/lib paths so native builds find `portaudio.h` immediately:
-```powershell
-$env:INCLUDE = "C:\tools\vcpkg\installed\x64-windows\include;$env:INCLUDE"
-$env:LIB = "C:\tools\vcpkg\installed\x64-windows\lib;$env:LIB"
-```
-
-5. Re-run dependency sync / build in your project:
-```powershell
-# from project root
 uv sync
 ```
 
-Notes / troubleshooting:
-- If `uv sync` still reports `portaudio.h` missing, verify `C:\tools\vcpkg\installed\x64-windows\include\portaudio.h` exists.
-- If you cannot install `vcpkg` or prefer a quicker workaround, use a Python interpreter version with prebuilt wheels for `pyaudio` (commonly 3.11): create a virtualenv with that interpreter and select it in VS Code.
-- In VS Code select the project interpreter created by `uv` (or your `.venv`) via Command Palette → "Python: Select Interpreter" → choose `./.venv/Scripts/python.exe` or the `uv`-installed Python executable path.
+To inspect devices and available channel counts:
+
+```powershell
+uv run python -m sounddevice
+```
+
+If the packaged application cannot load PortAudio, verify that PyInstaller collected the
+`sounddevice` native libraries and rebuild from a clean `build` and `dist` directory.
 
 #### Opus library (Windows, `uv`)
 If the app fails to start with an error like `Could not find Opus library`, follow these steps:

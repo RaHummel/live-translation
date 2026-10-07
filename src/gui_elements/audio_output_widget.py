@@ -62,10 +62,10 @@ class AudioOutputWidget(QWidget):
 
         self.chunk_len = QSpinBox(minimum=256, maximum=4096, singleStep=16, value=self._output_settings.chunk_len)
         self.chunk_len.setToolTip(
-            'Audio buffer size (chunk length) in samples. Smaller values reduce latency but increase Network usage.'
+            'Audio output buffer size in frames. Smaller values reduce latency but increase processing overhead.'
         )
-        self.chunk_len.setStatusTip('Audio buffer length in samples. Adjust for latency and performance.')
-        general_settings_layout.addRow('Audio Buffer Length (samples):', self.chunk_len)
+        self.chunk_len.setStatusTip('Audio output buffer length in frames. Adjust for latency and performance.')
+        general_settings_layout.addRow('Audio Buffer Length (frames):', self.chunk_len)
 
         main_layout.addWidget(general_settings_group)
 

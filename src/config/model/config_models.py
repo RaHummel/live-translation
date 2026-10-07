@@ -14,6 +14,7 @@ class InputSettings:
 class SpeakerSettings:
     output_device: Optional[str]
     output_device_index: Optional[int]
+    language_channel_mapping: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

@@ -48,6 +48,7 @@ channels — enabling multilingual audiences to listen in their preferred langua
 - 🎙 **Real-time Speech Translation**
 - 🌍 **Multiple Target Languages in Parallel**
 - 🔊 **Audio Output via Speaker or Mumble**
+- 🎚 **Dedicated Physical Speaker Channel per Target Language**
 - 🤖 **Automated Mumble Server Setup** — no manual installation, channel or ACL configuration required
 - 🎛 **Configurable Language-to-Channel Mapping**
 - 🔄 **Modular Translator Architecture (AWS, Google supported)**
@@ -91,6 +92,17 @@ The following diagram illustrates the recommended setup:
    Listeners join their preferred language channel using:
    - iOS: [Mumble](https://apps.apple.com/de/app/mumble/id443472808)  
    - Android: [Mumla](https://play.google.com/store/apps/details?id=se.lublin.mumla&hl=de)
+
+### Multi-channel Speaker Output
+
+Speaker output can route every target language to a distinct physical channel of one audio
+interface. Select a multi-channel output device, then assign each active target language in the
+**Language Routing** table. Channel numbers shown in the UI start at 1.
+
+A normal stereo output supports at most two independently routed languages. More languages require
+a multi-channel audio interface or a virtual multi-channel audio device. The application rejects
+missing, duplicate, or unsupported channel assignments when translation starts. Existing
+single-language configurations without a mapping continue to use channel 1.
 
 ---
 
@@ -137,7 +149,7 @@ sudo cp $(brew --prefix opus)/lib/libopus.* /usr/local/lib/
 
 ### Windows
 
-- Install PortAudio via `vcpkg`
+- PortAudio is included by the `sounddevice` wheel
 - Install Opus via `vcpkg`
 - Install `uv`
 - Optional: Install NSIS to build `.exe` installer

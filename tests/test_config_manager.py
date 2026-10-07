@@ -64,6 +64,20 @@ class TestConfigManager(unittest.TestCase):
         self.assertIsInstance(config.translator_settings, TranslatorSettings)
         self.assertIsNotNone(config.translator_settings.aws_settings)
         self.assertIsNotNone(config.translator_settings.google_settings)
+        self.assertEqual(config.output_settings.speaker_settings.language_channel_mapping, {})
+
+    def test_parse_speaker_language_channel_mapping(self):
+        config = ConfigManager.create_user_config(
+            {
+                'output_settings': {
+                    'speaker_settings': {
+                        'language_channel_mapping': {'de-DE': 1, 'en-US': '2', 'fr-FR': 0, 'it-IT': 'invalid'}
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(config.output_settings.speaker_settings.language_channel_mapping, {'de-DE': 1, 'en-US': 2})
 
     def test_create_user_config_with_provider_settings(self):
         raw = {

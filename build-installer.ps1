@@ -69,13 +69,12 @@ if (-not (Test-Path $vcpkgPath)) {
 $env:VCPKG_PATH = $vcpkgPath
 Write-Host "Using vcpkg at: $vcpkgPath" -ForegroundColor Green
 
-# Install PortAudio and Opus via vcpkg (x64)
+# Install Opus via vcpkg (x64). sounddevice bundles PortAudio on Windows.
 if (Test-Path "$vcpkgPath\vcpkg.exe") {
-    Write-Host "Installing portaudio and opus via vcpkg... (this may take a while)" -ForegroundColor Yellow
-    & "$vcpkgPath\vcpkg.exe" install portaudio:x64-windows
+    Write-Host "Installing opus via vcpkg... (this may take a while)" -ForegroundColor Yellow
     & "$vcpkgPath\vcpkg.exe" install opus:x64-windows
 } else {
-    Write-Warning "vcpkg.exe not found at $vcpkgPath. Skipping native library install - PyAudio/Opus build may fail."
+    Write-Warning "vcpkg.exe not found at $vcpkgPath. Skipping native library install - Opus build may fail."
 }
 
 

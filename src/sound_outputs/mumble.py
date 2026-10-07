@@ -83,7 +83,7 @@ class MumbleClient(SoundOutput):
             # Read data from output_bytes and send it to the Mumble stream
             while True:
                 data = await loop.run_in_executor(
-                    MumbleClient._executor, output_bytes.read, self._output_settings.chunk_len
+                    MumbleClient._executor, output_bytes.read, self._output_settings.chunk_len * 2
                 )
 
                 if not data:

@@ -1,14 +1,13 @@
 import asyncio
-import contextlib
 import logging
 from asyncio import AbstractEventLoop, Event
-from typing import AsyncGenerator, List, Mapping, Optional, Tuple
+from typing import AsyncGenerator, List, Mapping, Optional
 
-import pyaudio
-from pyaudio import Stream
+import sounddevice
 
 from config.model.config_models import InputSettings
 from translation import SoundInput
+from utils.audio_devices import get_audio_device, list_audio_devices
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,14 +19,17 @@ class Microphone(SoundInput):
         Args:
             input_settings (InputSetting): Input settings object.
         """
-        # Initialize audio
-        self._pa = pyaudio.PyAudio()
         self._input_settings = input_settings
-        self._audio_stream: Optional[Stream] = None
+        self._audio_stream: Optional[sounddevice.RawInputStream] = None
         self._loop: Optional[AbstractEventLoop] = None
         self._input_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
 
         self._input_device_info = self._get_input_device(self._input_settings.input_device_index)
+        if self._input_settings.input_channels > self._input_device_info['max_input_channels']:
+            raise ValueError(
+                f'Input device supports {self._input_device_info["max_input_channels"]} channels, '
+                f'but {self._input_settings.input_channels} were requested.'
+            )
         # Use ~100ms audio chunks to reduce end-of-utterance latency for streaming STT.
         self._buffer_frames = int(self._input_settings.input_sample_rate / 10)
 
@@ -38,17 +40,16 @@ class Microphone(SoundInput):
             bytes: Audio data chunks.
         """
         self._loop = asyncio.get_running_loop()
-        self._audio_stream = self._pa.open(
-            format=pyaudio.paInt16,
+        self._audio_stream = sounddevice.RawInputStream(
+            dtype='int16',
             channels=self._input_settings.input_channels,
-            rate=self._input_settings.input_sample_rate,
-            input=True,
-            frames_per_buffer=self._buffer_frames,
-            input_device_index=self._input_device_info['index'],
-            stream_callback=self._callback,
+            samplerate=self._input_settings.input_sample_rate,
+            blocksize=self._buffer_frames,
+            device=self._input_device_info['index'],
+            callback=self._callback,
         )
 
-        self._audio_stream.start_stream()
+        self._audio_stream.start()
 
         LOGGER.debug('Audio stream started with device: %s', self._input_device_info['name'])
 
@@ -60,37 +61,34 @@ class Microphone(SoundInput):
             LOGGER.debug('Audio stream cancelled.')
 
     def stop_audio_stream(self):
-        """Stops the audio stream and closes the PyAudio instance."""
+        """Stops and closes the sounddevice input stream."""
 
         if self._audio_stream is None:
             LOGGER.warning('Audio stream was not initialized.')
         else:
-            self._audio_stream.stop_stream()
+            self._audio_stream.stop()
             self._audio_stream.close()
 
-        if self._pa is not None:
-            self._pa.terminate()
-            self._pa = None
-
         self._audio_stream = None
-        LOGGER.debug('Microphone stream stopped and PyAudio terminated.')
+        LOGGER.debug('Microphone stream stopped.')
 
-    def _callback(self, indata: bytes, *args, **kwargs) -> Tuple[Optional[bytes], int]:
+    def _callback(self, indata, _frames=None, _time_info=None, status=None) -> None:
         """Callback function for the audio stream.
         Args:
             indata (bytes): The audio data chunk.
         """
+        if status:
+            LOGGER.warning('Microphone stream status: %s', status)
         if self._loop is None:
-            return None, pyaudio.paContinue
+            return
 
+        self._loop.call_soon_threadsafe(self._enqueue_audio, bytes(indata))
+
+    def _enqueue_audio(self, data: bytes) -> None:
         if self._input_queue.full():
             LOGGER.warning('Input audio queue is full, dropping audio chunk.')
-            return None, pyaudio.paContinue
-
-        with contextlib.suppress(asyncio.QueueFull):
-            self._loop.call_soon_threadsafe(self._input_queue.put_nowait, indata)
-
-        return None, pyaudio.paContinue
+            return
+        self._input_queue.put_nowait(data)
 
     def _get_input_device(self, device_index: Optional[int]) -> Mapping:
         """Gets the input device information by index (preferred) or name.
@@ -102,15 +100,7 @@ class Microphone(SoundInput):
         Returns:
             Mapping: The input device information.
         """
-        if device_index is not None:
-            try:
-                device = self._pa.get_device_info_by_index(device_index)
-                if device['maxInputChannels'] > 0:
-                    return device
-            except Exception:
-                LOGGER.warning(f'Input device with index {device_index} not found. Falling back to name/default.')
-
-        return self._pa.get_default_input_device_info()
+        return get_audio_device(device_index, 'input')
 
     @staticmethod
     def list_input_devices() -> List[Mapping]:
@@ -119,19 +109,4 @@ class Microphone(SoundInput):
         Returns:
             List[Mapping]: A list of input device information dictionaries.
         """
-        pa = pyaudio.PyAudio()
-        devices: List[Mapping] = []
-        for i in range(pa.get_device_count()):
-            device = pa.get_device_info_by_index(i)
-            # Only include devices with input channels and required host API
-            # Note: On MacOs hostApi is not available, so we check for its presence before filtering
-            if device['maxInputChannels'] > 0 and device.get('hostApi') is not None and device.get('hostApi') >= 0:
-                host_api_id = device.get('hostApi')
-                try:
-                    host_api_name = pa.get_host_api_info_by_index(host_api_id)['name']
-                except Exception:
-                    host_api_name = None
-                devices.append({'name': device['name'], 'index': device['index'], 'host_api_name': host_api_name})
-
-        pa.terminate()
-        return devices
+        return list_audio_devices('input')

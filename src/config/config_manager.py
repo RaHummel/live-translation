@@ -145,6 +145,9 @@ class ConfigManager:
         """
         raw_speaker = raw.get('speaker_settings', {})
         raw_mumble = raw.get('mumble_settings', {})
+        speaker_channel_mapping = ConfigManager._parse_speaker_channel_mapping(
+            raw_speaker.get('language_channel_mapping', {})
+        )
         return OutputSettings(
             output_method=raw.get('output_method'),
             output_sample_rate=raw.get('output_sample_rate', OUTPUT_SAMPLE_RATE),
@@ -152,6 +155,7 @@ class ConfigManager:
             speaker_settings=SpeakerSettings(
                 output_device=raw_speaker.get('output_device', 'default'),
                 output_device_index=raw_speaker.get('output_device_index', None),
+                language_channel_mapping=speaker_channel_mapping,
             ),
             mumble_settings=MumbleSettings(
                 ip_address=raw_mumble.get('ip_address', 'localhost'),
@@ -161,6 +165,26 @@ class ConfigManager:
                 superuser_password=raw_mumble.get('superuser_password', None),
             ),
         )
+
+    @staticmethod
+    def _parse_speaker_channel_mapping(raw: object) -> dict[str, int]:
+        """Parse persisted one-based language-to-output-channel assignments."""
+        if not isinstance(raw, dict):
+            LOGGER.warning('Ignoring invalid speaker language channel mapping.')
+            return {}
+
+        mapping: dict[str, int] = {}
+        for language, channel in raw.items():
+            try:
+                parsed_channel = int(channel)
+            except TypeError, ValueError:
+                LOGGER.warning('Ignoring invalid speaker channel %r for language %r.', channel, language)
+                continue
+            if isinstance(language, str) and language and parsed_channel > 0:
+                mapping[language] = parsed_channel
+            else:
+                LOGGER.warning('Ignoring invalid speaker mapping %r: %r.', language, channel)
+        return mapping
 
     @staticmethod
     def _parse_language_settings(raw: dict) -> dict[str, LanguageSettings]:

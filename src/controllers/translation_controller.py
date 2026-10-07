@@ -7,7 +7,7 @@ from PySide6.QtCore import QObject, Signal
 from config.model.config_models import UserConfig
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
-from sound_outputs.speaker import Speaker
+from sound_outputs.speaker import create_speaker_outputs
 from translation import SoundOutput, Translation, Translator
 from translators.aws_translator import AWSTranslator
 from translators.google_translator import GoogleTranslator
@@ -114,11 +114,8 @@ class TranslationController(QObject):
         lang_to_output: Dict[str, SoundOutput] = {}
 
         if output_method == 'speaker':
-            if len(target_languages) != 1:
-                raise ValueError('Speaker output requires exactly one target language.')
-
-            lang_to_output[next(iter(target_languages))] = Speaker(config.output_settings)
-            LOGGER.debug('Speaker output initialized.')
+            lang_to_output.update(create_speaker_outputs(config.output_settings, target_languages))
+            LOGGER.debug('Speaker outputs initialized for languages: %s', list(target_languages))
 
         elif output_method == 'mumble':
             if not target_languages:
