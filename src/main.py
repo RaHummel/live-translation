@@ -11,7 +11,7 @@ from config.model.config_models import UserConfig
 from main_window import MainWindow
 from sound_inputs.microphone import Microphone
 from sound_outputs.mumble import MumbleClient
-from sound_outputs.speaker import Speaker
+from sound_outputs.speaker import create_speaker_outputs
 from translation import Translation
 from translators.aws_translator import AWSTranslator
 from translators.google_translator import GoogleTranslator
@@ -83,7 +83,10 @@ def run_cli_mode(arguments, usr_config: UserConfig):
     # Determine target languages: CLI takes precedence over config
     target_langs = arguments.target_lang
     if not target_langs:
-        target_langs = list(usr_config.translator_settings.aws_settings.target_languages.keys())
+        if translator_type == 'aws':
+            target_langs = list(usr_config.translator_settings.aws_settings.target_languages.keys())
+        elif translator_type == 'google':
+            target_langs = list(usr_config.translator_settings.google_settings.target_languages.keys())
 
     if translator_type == 'aws':
         # Ensure target languages from CLI are in the config
@@ -115,21 +118,17 @@ def run_cli_mode(arguments, usr_config: UserConfig):
     else:
         raise ValueError(f'Unsupported input method: {input_method}')
 
-    if output_method == 'speaker' and len(target_langs) > 1:
-        raise ValueError('Multiple target_lang for speaker output not supported')
-
     target_language_mapping = {}
 
-    for language in target_langs:
-        if output_method == 'mumble':
+    if output_method == 'speaker':
+        target_language_mapping.update(create_speaker_outputs(usr_config.output_settings, target_langs))
+    elif output_method == 'mumble':
+        for language in target_langs:
             sound_output = MumbleClient(usr_config.output_settings, language)
             sound_output.connect()
-        elif output_method == 'speaker':
-            sound_output = Speaker(usr_config.output_settings)
-        else:
-            raise ValueError(f'Unsupported output method: {output_method}')
-
-        target_language_mapping[language] = sound_output
+            target_language_mapping[language] = sound_output
+    else:
+        raise ValueError(f'Unsupported output method: {output_method}')
 
     translation = Translation(translator, sound_input, target_language_mapping)
 

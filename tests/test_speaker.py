@@ -1,10 +1,12 @@
+import asyncio
+import io
+import sys
 import unittest
-from unittest.mock import MagicMock, patch
-
-from botocore.response import StreamingBody
+from array import array
+from unittest.mock import patch
 
 from config.model.config_models import MumbleSettings, OutputSettings, SpeakerSettings
-from sound_outputs.speaker import Speaker
+from sound_outputs.speaker import Speaker, SpeakerRouter, create_speaker_outputs
 
 
 class TestSpeaker(unittest.IsolatedAsyncioTestCase):
@@ -12,129 +14,116 @@ class TestSpeaker(unittest.IsolatedAsyncioTestCase):
         self.output_settings = OutputSettings(
             output_method='speaker',
             output_sample_rate=16000,
-            chunk_len=1024,
-            speaker_settings=SpeakerSettings(output_device='default', output_device_index=0),
+            chunk_len=4,
+            speaker_settings=SpeakerSettings(
+                output_device='default', output_device_index=0, language_channel_mapping={'de-DE': 1, 'en-US': 2}
+            ),
             mumble_settings=MumbleSettings(ip_address='localhost', port=64738, language_channel_mapping={}),
         )
+        self.device_patcher = patch(
+            'sound_outputs.speaker.get_audio_device',
+            return_value={'index': 0, 'name': 'default_spk', 'max_output_channels': 4},
+        )
+        self.stream_patcher = patch('sound_outputs.speaker.sounddevice.RawOutputStream')
+        self.mock_get_device = self.device_patcher.start()
+        self.mock_stream_class = self.stream_patcher.start()
+        self.addCleanup(self.device_patcher.stop)
+        self.addCleanup(self.stream_patcher.stop)
 
-        self.patcher = patch('pyaudio.PyAudio')
-        self.mock_pa = self.patcher.start()
-        self.addCleanup(self.patcher.stop)
-        self.mock_pa_instance = self.mock_pa.return_value
+    def _router(self, mapping=None):
+        router = SpeakerRouter(self.output_settings, mapping or {'de-DE': 1, 'en-US': 2})
+        self.addCleanup(router.stop)
+        return router
 
-        self.mock_pa_instance.get_default_output_device_info.return_value = {
-            'index': 0,
-            'name': 'default_spk',
-            'maxOutputChannels': 2,
-        }
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'index': 0,
-            'name': 'default_spk',
-            'maxOutputChannels': 2,
-        }
-        self.speaker = Speaker(self.output_settings)
+    async def test_play_opens_one_shared_stream_and_queues_pcm(self):
+        outputs = create_speaker_outputs(self.output_settings, ['de-DE', 'en-US'])
+        router = outputs['de-DE']._router
+        self.addCleanup(router.stop)
 
-    def test_init_invalid_channels(self):
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'index': 0,
-            'name': 'invalid_spk',
-            'maxOutputChannels': 0,
-        }
-        self.mock_pa_instance.get_default_output_device_info.return_value = {
-            'index': 0,
-            'name': 'invalid_spk',
-            'maxOutputChannels': 0,
-        }
+        await asyncio.gather(
+            outputs['de-DE'].play(io.BytesIO(array('h', [1, 2]).tobytes())),
+            outputs['en-US'].play(io.BytesIO(array('h', [10, 20]).tobytes())),
+        )
 
-        with self.assertRaises(ValueError):
-            Speaker(self.output_settings)
+        self.mock_stream_class.assert_called_once()
+        self.mock_stream_class.return_value.start.assert_called_once()
+        self.assertIs(outputs['de-DE']._router, outputs['en-US']._router)
 
-    async def test_play_success(self):
-        mock_output_stream = MagicMock(spec=StreamingBody)
-        mock_output_stream.read.return_value = b''
-        mock_stream = MagicMock()
-        self.mock_pa_instance.open.return_value = mock_stream
+    def test_callback_routes_each_language_to_its_physical_channel(self):
+        router = self._router()
+        router._queues['de-DE'].put(array('h', [1, 2, 3]).tobytes())
+        router._queues['en-US'].put(array('h', [10, 20, 30]).tobytes())
+        output = bytearray(3 * 2 * 2)
 
-        await self.speaker.play(mock_output_stream)
-        if self.speaker._consumer_task:
-            await self.speaker._consumer_task
+        router._audio_callback(output, 3)
 
-        self.assertTrue(mock_stream.start_stream.called)
-        self.assertFalse(self.speaker._is_playing)
+        samples = array('h')
+        samples.frombytes(output)
+        self.assertEqual(samples.tolist(), [1, 10, 2, 20, 3, 30])
 
-    async def test_play_reuses_persistent_stream(self):
-        mock_output_stream_1 = MagicMock(spec=StreamingBody)
-        mock_output_stream_1.read.side_effect = [b'data1', b'']
+    def test_callback_uses_silence_on_language_underrun(self):
+        router = self._router()
+        router._queues['de-DE'].put(array('h', [1]).tobytes())
+        output = bytearray(2 * 2 * 2)
 
-        mock_output_stream_2 = MagicMock(spec=StreamingBody)
-        mock_output_stream_2.read.side_effect = [b'data2', b'']
+        router._audio_callback(output, 2)
 
-        mock_stream = MagicMock()
-        self.mock_pa_instance.open.return_value = mock_stream
+        samples = array('h')
+        samples.frombytes(output)
+        self.assertEqual(samples.tolist(), [1, 0, 0, 0])
 
-        # First play: stream opens
-        await self.speaker.play(mock_output_stream_1)
-        if self.speaker._consumer_task:
-            await self.speaker._consumer_task
-        self.assertEqual(self.mock_pa_instance.open.call_count, 1)
-        self.assertTrue(mock_stream.start_stream.called)
+    def test_partial_chunks_are_preserved_between_callbacks(self):
+        router = self._router({'de-DE': 1})
+        router._queues['de-DE'].put(array('h', [1, 2, 3]).tobytes())
+        first = bytearray(2 * 2)
+        second = bytearray(2 * 2)
 
-        # Second play: stream reused, no new open
-        await self.speaker.play(mock_output_stream_2)
-        if self.speaker._consumer_task:
-            await self.speaker._consumer_task
-        self.assertEqual(self.mock_pa_instance.open.call_count, 1)
-        self.assertFalse(mock_stream.stop_stream.called)
-        self.assertFalse(mock_stream.close.called)
+        router._audio_callback(first, 2)
+        router._audio_callback(second, 2)
 
-    async def test_play_already_playing(self):
-        self.speaker._is_playing = True
+        first_samples = array('h')
+        first_samples.frombytes(first)
+        second_samples = array('h')
+        second_samples.frombytes(second)
+        self.assertEqual(first_samples.tolist(), [1, 2])
+        self.assertEqual(second_samples.tolist(), [3, 0])
 
-        await self.speaker.play(MagicMock())
+    def test_rejects_duplicate_or_unavailable_channels(self):
+        with self.assertRaisesRegex(ValueError, 'different output channel'):
+            SpeakerRouter(self.output_settings, {'de-DE': 1, 'en-US': 1})
+        with self.assertRaisesRegex(ValueError, 'supports 4 channels'):
+            SpeakerRouter(self.output_settings, {'de-DE': 5})
 
-        self.assertFalse(self.mock_pa_instance.open.called)
+    def test_single_language_without_mapping_uses_channel_one(self):
+        self.output_settings.speaker_settings.language_channel_mapping = {}
 
-    def test_stop_audio_stream(self):
-        self.speaker._is_playing = True
-        mock_stream = MagicMock()
-        self.speaker._audio_stream = mock_stream
-        self.speaker._stream_initialized = True
+        outputs = create_speaker_outputs(self.output_settings, ['de-DE'])
+        router = outputs['de-DE']._router
+        self.addCleanup(router.stop)
 
-        self.speaker.stop_audio_stream()
+        self.assertEqual(router._language_channel_mapping, {'de-DE': 1})
 
-        self.assertFalse(self.speaker._is_playing)
-        mock_stream.stop_stream.assert_called_once()
-        mock_stream.close.assert_called_once()
-        self.assertFalse(self.speaker._stream_initialized)
-        self.mock_pa_instance.terminate.assert_called_once()
+    def test_multiple_languages_require_complete_mapping(self):
+        self.output_settings.speaker_settings.language_channel_mapping = {'de-DE': 1}
 
-    def test_play_blocking_reads_data(self):
-        mock_stream = MagicMock()
-        mock_output_stream = MagicMock(spec=StreamingBody)
-        mock_output_stream.read.side_effect = [b'data1', b'data2', b'']
-        self.speaker._is_playing = True
+        with self.assertRaisesRegex(ValueError, 'en-US'):
+            create_speaker_outputs(self.output_settings, ['de-DE', 'en-US'])
 
-        self.speaker._play_blocking(mock_output_stream, mock_stream)
+    def test_stop_is_idempotent_across_adapters(self):
+        outputs = create_speaker_outputs(self.output_settings, ['de-DE', 'en-US'])
+        router = outputs['de-DE']._router
+        router._ensure_audio_stream_initialized()
 
-        self.assertEqual(mock_output_stream.read.call_count, 3)
-        self.assertEqual(mock_stream.write.call_count, 2)
+        outputs['de-DE'].stop_audio_stream()
+        outputs['en-US'].stop_audio_stream()
 
-    def test_get_output_device_fallback(self):
-        self.mock_pa_instance.get_device_info_by_index.side_effect = Exception('Not found')
-
-        device = self.speaker._get_output_device(99)
-
-        self.assertEqual(device['name'], 'default_spk')
+        self.mock_stream_class.return_value.stop.assert_called_once()
+        self.mock_stream_class.return_value.close.assert_called_once()
 
     def test_list_output_devices(self):
-        self.mock_pa_instance.get_device_count.return_value = 1
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'name': 'spk1',
-            'index': 0,
-            'maxOutputChannels': 2,
-        }
+        expected = [{'name': 'spk1', 'index': 0, 'max_output_channels': 2}]
+        with patch('sound_outputs.speaker.list_audio_devices', return_value=expected):
+            self.assertEqual(Speaker.list_output_devices(), expected)
 
-        devices = Speaker.list_output_devices()
-
-        self.assertEqual(len(devices), 1)
-        self.assertEqual(devices[0]['name'], 'spk1')
+    def test_pcm_test_assumes_little_endian_host(self):
+        self.assertEqual(sys.byteorder, 'little')

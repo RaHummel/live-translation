@@ -2,8 +2,6 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
-import pyaudio
-
 from config.model.config_models import InputSettings
 from sound_inputs.microphone import Microphone
 
@@ -13,71 +11,49 @@ class TestMicrophone(unittest.IsolatedAsyncioTestCase):
         self.input_settings = InputSettings(
             input_device='default', input_device_index=0, input_sample_rate=16000, input_channels=1
         )
-        self.patcher = patch('pyaudio.PyAudio')
-        self.mock_pa = self.patcher.start()
-        self.addCleanup(self.patcher.stop)
-        self.mock_pa_instance = self.mock_pa.return_value
-
-        self.mock_pa_instance.get_default_input_device_info.return_value = {
-            'index': 0,
-            'name': 'default_mic',
-            'maxInputChannels': 1,
-        }
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'index': 0,
-            'name': 'default_mic',
-            'maxInputChannels': 1,
-        }
+        self.device_patcher = patch(
+            'sound_inputs.microphone.get_audio_device',
+            return_value={'index': 0, 'name': 'default_mic', 'max_input_channels': 2},
+        )
+        self.stream_patcher = patch('sound_inputs.microphone.sounddevice.RawInputStream')
+        self.mock_get_device = self.device_patcher.start()
+        self.mock_stream_class = self.stream_patcher.start()
+        self.addCleanup(self.device_patcher.stop)
+        self.addCleanup(self.stream_patcher.stop)
         self.microphone = Microphone(self.input_settings)
 
     async def test_get_audio_stream(self):
         mock_stream = MagicMock()
-        self.mock_pa_instance.open.return_value = mock_stream
+        self.mock_stream_class.return_value = mock_stream
         shutdown_event = asyncio.Event()
-
-        # Simulate some data in the queue
         await self.microphone._input_queue.put(b'audio_chunk')
-
-        # Start the generator as a task so we can stop it
         generator = self.microphone.get_audio_stream(shutdown_event)
 
-        # Consume one item
         item = await generator.__anext__()
-        self.assertEqual(item, b'audio_chunk')
-
-        # Shutdown
         shutdown_event.set()
-        # Put another item to unblock the queue.get() if needed
         await self.microphone._input_queue.put(b'stop')
 
+        self.assertEqual(item, b'audio_chunk')
         with self.assertRaises(StopAsyncIteration):
             await generator.__anext__()
-
-        mock_stream.start_stream.assert_called_once()
+        mock_stream.start.assert_called_once()
 
     async def test_get_audio_stream_cancel(self):
         mock_stream = MagicMock()
-        self.mock_pa_instance.open.return_value = mock_stream
+        self.mock_stream_class.return_value = mock_stream
         shutdown_event = asyncio.Event()
-
         generator = self.microphone.get_audio_stream(shutdown_event)
 
-        # Run the generator in a task
         async def run_gen():
             async for _ in generator:
                 pass
 
         task = asyncio.create_task(run_gen())
-
-        # Let it start
         await asyncio.sleep(0.01)
-
-        # Cancel it
         task.cancel()
-
-        # Should not raise CancelledError
         await task
-        self.assertTrue(mock_stream.start_stream.called)
+
+        mock_stream.start.assert_called_once()
 
     def test_stop_audio_stream(self):
         mock_stream = MagicMock()
@@ -85,74 +61,47 @@ class TestMicrophone(unittest.IsolatedAsyncioTestCase):
 
         self.microphone.stop_audio_stream()
 
-        mock_stream.stop_stream.assert_called_once()
+        mock_stream.stop.assert_called_once()
         mock_stream.close.assert_called_once()
-        self.mock_pa_instance.terminate.assert_called_once()
 
     def test_stop_audio_stream_without_stream(self):
         self.microphone._audio_stream = None
         self.microphone.stop_audio_stream()
-        self.mock_pa_instance.terminate.assert_called_once()
 
-    def test_callback_success(self):
+    def test_callback_schedules_copied_data(self):
         self.microphone._loop = MagicMock()
+
+        result = self.microphone._callback(bytearray(b'data'))
+
+        self.assertIsNone(result)
+        self.microphone._loop.call_soon_threadsafe.assert_called_once_with(self.microphone._enqueue_audio, b'data')
+
+    def test_enqueue_audio_drops_chunk_when_queue_is_full(self):
         self.microphone._input_queue = asyncio.Queue(maxsize=1)
+        self.microphone._input_queue.put_nowait(b'existing')
 
-        res = self.microphone._callback(b'data')
+        self.microphone._enqueue_audio(b'data')
 
-        self.assertEqual(res, (None, pyaudio.paContinue))
-        self.assertTrue(self.microphone._loop.call_soon_threadsafe.called)
+        self.assertEqual(self.microphone._input_queue.qsize(), 1)
+        self.assertEqual(self.microphone._input_queue.get_nowait(), b'existing')
 
-    def test_callback_queue_full(self):
-        self.microphone._loop = MagicMock()
-        self.microphone._input_queue = MagicMock()
-        self.microphone._input_queue.full.return_value = True
-
-        res = self.microphone._callback(b'data')
-
-        self.assertEqual(res, (None, pyaudio.paContinue))
-        self.assertFalse(self.microphone._loop.call_soon_threadsafe.called)
-
-    def test_callback_no_loop(self):
+    def test_callback_without_event_loop_drops_data(self):
         self.microphone._loop = None
+        self.assertIsNone(self.microphone._callback(b'data'))
 
-        res = self.microphone._callback(b'data')
-
-        self.assertEqual(res, (None, pyaudio.paContinue))
-
-    def test_get_input_device_fallback(self):
-        self.mock_pa_instance.get_device_info_by_index.side_effect = Exception('Not found')
-
-        device = self.microphone._get_input_device(99)
-
-        self.assertEqual(device['name'], 'default_mic')
+    def test_get_input_device_delegates_to_shared_device_service(self):
+        self.microphone._get_input_device(99)
+        self.mock_get_device.assert_called_with(99, 'input')
 
     def test_list_input_devices(self):
-        self.mock_pa_instance.get_device_count.return_value = 1
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'index': 0,
-            'name': 'mic1',
-            'maxInputChannels': 1,
-            'hostApi': 0,
-        }
+        expected = [{'name': 'mic1', 'index': 0, 'max_input_channels': 1}]
+        with patch('sound_inputs.microphone.list_audio_devices', return_value=expected):
+            self.assertEqual(Microphone.list_input_devices(), expected)
 
-        devices = Microphone.list_input_devices()
-
-        self.assertEqual(len(devices), 1)
-        self.assertEqual(devices[0]['name'], 'mic1')
-
-    def test_list_input_devices_filter_no_input(self):
-        self.mock_pa_instance.get_device_count.return_value = 1
-        self.mock_pa_instance.get_device_info_by_index.return_value = {
-            'index': 0,
-            'name': 'output_only',
-            'maxInputChannels': 0,
-            'hostApi': 0,
-        }
-
-        devices = Microphone.list_input_devices()
-
-        self.assertEqual(len(devices), 0)
+    def test_rejects_more_channels_than_device_supports(self):
+        self.input_settings.input_channels = 3
+        with self.assertRaisesRegex(ValueError, 'supports 2 channels'):
+            Microphone(self.input_settings)
 
     def test_uses_100ms_input_buffer_for_lower_latency(self):
         self.assertEqual(self.microphone._buffer_frames, 1600)

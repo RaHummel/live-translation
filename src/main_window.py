@@ -73,7 +73,9 @@ class MainWindow(QMainWindow):
 
         # Connect the target transcribe dashboard to the translator tab widget
         self.translator_tab_widget.add_target_lang_signal(self.live_output_dashboard.update_target_transcript_outputs)
+        self.translator_tab_widget.add_target_lang_signal(self._handle_target_language_changed)
         self.translator_tab_widget.add_provider_changed_signal(self._handle_provider_changed)
+        self._sync_speaker_target_languages()
 
         # Apply initial theme
         self._current_theme = getattr(self._config_manager.config, 'theme', 'light')
@@ -302,6 +304,7 @@ class MainWindow(QMainWindow):
         self.translator_tab_widget.update_settings(config.translator_settings)
         self.output_tab_widget.update_settings(config.output_settings)
         self.live_output_dashboard.update_settings(config.translator_settings)
+        self._sync_speaker_target_languages()
         LOGGER.debug('GUI widgets populated with new configuration data.')
 
     def _collect_config_data(self) -> UserConfig:
@@ -323,6 +326,7 @@ class MainWindow(QMainWindow):
                 speaker_settings=SpeakerSettings(
                     output_device=self.output_tab_widget.speaker_widget.output_device.currentText(),
                     output_device_index=self.output_tab_widget.speaker_widget.output_device.currentData(),
+                    language_channel_mapping=self.output_tab_widget.speaker_widget.get_channel_mapping(),
                 ),
                 mumble_settings=MumbleSettings(
                     ip_address=mumble_widget.mumble_ip.text() if use_custom_server else 'localhost',
@@ -391,6 +395,14 @@ class MainWindow(QMainWindow):
     def _handle_provider_changed(self, _provider: str) -> None:
         # Re-apply provider-specific transcript visibility from TranslatorSettings when switching tabs.
         self.live_output_dashboard.update_settings(self.translator_tab_widget.get_translator_settings())
+        self._sync_speaker_target_languages()
+
+    def _handle_target_language_changed(self, _language: str, _enabled: bool) -> None:
+        self._sync_speaker_target_languages()
+
+    def _sync_speaker_target_languages(self) -> None:
+        if hasattr(self, 'output_tab_widget') and hasattr(self, 'translator_tab_widget'):
+            self.output_tab_widget.speaker_widget.set_target_languages(self._get_active_target_languages())
 
     def _get_active_target_languages(self) -> set[str]:
         """Collect all currently checked target language keys from the active translator widget."""

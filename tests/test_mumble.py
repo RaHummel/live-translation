@@ -52,6 +52,7 @@ class TestMumbleClient(unittest.IsolatedAsyncioTestCase):
         await self.client.play(mock_output)
 
         self.assertEqual(self.mock_mumble.sound_output.add_sound.call_count, 2)
+        mock_output.read.assert_called_with(2048)
 
     async def test_play_sound_output_not_init(self):
         mock_output = MagicMock(spec=StreamingBody)
