@@ -51,14 +51,22 @@ class TestTranslatorWidget(unittest.TestCase):
         self.assertIs(widget.translator_stacked.currentWidget(), widget.google_tab_widget)
 
     @patch('gui_elements.aws_widget.AWSWidget._check_aws_credentials', return_value=None)
-    def test_google_widget_endpointing_dropdown_is_configurable(self, _mock_check_credentials):
-        settings = self._create_translator_settings('google')
-        settings.google_settings.endpointing_sensitivity = 'supershort'
-
-        widget = TranslatorWidget(settings)
+    def test_google_widget_has_no_response_speed_selector(self, _mock_check_credentials):
+        widget = TranslatorWidget(self._create_translator_settings('google'))
         self.addCleanup(widget.deleteLater)
 
-        self.assertEqual(widget.google_tab_widget.get_endpointing_sensitivity(), 'supershort')
+        self.assertFalse(hasattr(widget.google_tab_widget, 'google_endpointing_select'))
+
+    @patch('gui_elements.aws_widget.AWSWidget._check_aws_credentials', return_value=None)
+    def test_advanced_button_requests_advanced_settings(self, _mock_check_credentials):
+        widget = TranslatorWidget(self._create_translator_settings('aws'))
+        self.addCleanup(widget.deleteLater)
+        requested = []
+        widget.advanced_settings_requested.connect(lambda: requested.append(True))
+
+        widget.advanced_settings_button.click()
+
+        self.assertEqual(requested, [True])
 
     @patch('gui_elements.aws_widget.AWSWidget._check_aws_credentials', return_value=None)
     def test_emits_provider_changed_signal_on_switch(self, _mock_check_credentials):

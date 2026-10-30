@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import mock_open, patch
 
@@ -8,6 +9,7 @@ from config.model.config_models import (
     AWSSettings,
     InputSettings,
     OutputSettings,
+    SegmentationSettings,
     TranslatorSettings,
     UserConfig,
 )
@@ -45,6 +47,26 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(cm.config.input_settings.input_device, 'mic1')
         self.assertEqual(cm.config.translator_settings.aws_settings.region, 'eu-central-1')
         self.assertEqual(cm.config.translator_settings.google_settings.endpointing_sensitivity, 'supershort')
+
+    def test_load_config_from_explicit_path(self):
+        cm = ConfigManager.__new__(ConfigManager)
+        fake_config = {'input_settings': {'input_device': 'mic2'}}
+
+        with patch('builtins.open', mock_open(read_data=json.dumps(fake_config))) as opened:
+            config = cm.load_config('/tmp/other.json')
+
+        opened.assert_called_once_with('/tmp/other.json', 'r')
+        self.assertEqual(config.input_settings.input_device, 'mic2')
+
+    def test_load_config_from_explicit_path_raises_instead_of_defaults(self):
+        cm = ConfigManager.__new__(ConfigManager)
+
+        with patch('builtins.open', side_effect=FileNotFoundError), self.assertRaises(FileNotFoundError):
+            cm.load_config('/tmp/missing.json')
+        with patch('builtins.open', mock_open(read_data='{broken')), self.assertRaises(json.JSONDecodeError):
+            cm.load_config('/tmp/broken.json')
+        with patch('builtins.open', mock_open(read_data='[]')), self.assertRaises(ValueError):
+            cm.load_config('/tmp/list.json')
 
     def test_store_config(self):
         cm = ConfigManager()
@@ -100,3 +122,35 @@ class TestConfigManager(unittest.TestCase):
 
         self.assertIsInstance(config.translator_settings.aws_settings, AWSSettings)
         self.assertEqual(config.translator_settings.google_settings.endpointing_sensitivity, 'short')
+
+    def test_segmentation_defaults(self):
+        config = ConfigManager.create_user_config({})
+        self.assertEqual(config.translator_settings.segmentation, SegmentationSettings())
+
+    def test_segmentation_parsing_and_clamping(self):
+        raw = {
+            'translator_settings': {
+                'segmentation': {
+                    'use_interim_segmentation': False,
+                    'min_segment_words': 6,
+                    'max_segment_words': 4,  # below min -> raised to min + 2
+                    'max_speaking_rate': 5.0,  # clamped
+                    'max_backlog_s': 'invalid',
+                }
+            }
+        }
+        segmentation = ConfigManager.create_user_config(raw).translator_settings.segmentation
+
+        self.assertFalse(segmentation.use_interim_segmentation)
+        self.assertEqual(segmentation.min_segment_words, 6)
+        self.assertEqual(segmentation.max_segment_words, 8)
+        self.assertEqual(segmentation.max_speaking_rate, 2.0)
+        self.assertEqual(segmentation.max_backlog_s, SegmentationSettings().max_backlog_s)
+
+    def test_segmentation_is_stored_at_translator_level(self):
+        config = ConfigManager.create_user_config({'translator_settings': {'segmentation': {'min_segment_words': 4}}})
+        stored = asdict(config)['translator_settings']
+
+        self.assertEqual(stored['segmentation']['min_segment_words'], 4)
+        self.assertNotIn('segmentation', stored['google_settings'])
+        self.assertNotIn('segmentation', stored['aws_settings'])

@@ -1,6 +1,4 @@
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 from pymumble_py3 import Mumble
 from pymumble_py3.constants import PYMUMBLE_CONN_STATE_CONNECTED
@@ -14,8 +12,6 @@ LOGGER = logging.getLogger(__name__)
 
 class MumbleClient(SoundOutput):
     username_postfix = MUMBLE_TRANSLATOR_USERNAME_SUFFIX
-    # Single executor for all MumbleClient instances to limit thread creation
-    _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='MumbleAudio')
 
     def __init__(self, output_settings: OutputSettings, language: str):
         """Initializes the MumbleClient instance.
@@ -70,32 +66,22 @@ class MumbleClient(SoundOutput):
         self._mumble.stop()
 
     async def play(self, output_bytes: AudioReadableStream):
-        """Streams audio data asynchronously directly from output_bytes to a Mumble server.
+        """Streams in-memory audio data from output_bytes to a Mumble server.
 
         Args:
             output_bytes (AudioReadableStream): The audio stream to play.
         """
         LOGGER.debug('Streaming to Mumble started...')
 
-        loop = asyncio.get_running_loop()
-
         try:
-            # Read data from output_bytes and send it to the Mumble stream
-            while True:
-                data = await loop.run_in_executor(
-                    MumbleClient._executor, output_bytes.read, self._output_settings.chunk_len * 2
-                )
-
-                if not data:
-                    break  # End of data
-
-                if self._mumble.sound_output is None:
-                    LOGGER.warning('Mumble sound_output not initialized yet. Skipping chunk.')
-                    continue
-
-                self._mumble.sound_output.add_sound(data)
-        except asyncio.CancelledError:
-            LOGGER.debug('Mumble playback task was cancelled.')
+            data = output_bytes.read()
+            if not data:
+                return
+            if self._mumble.sound_output is None:
+                LOGGER.warning('Mumble sound_output not initialized yet. Skipping audio.')
+                return
+            # pymumble buffers and paces the audio itself.
+            self._mumble.sound_output.add_sound(data)
         except Exception as e:
             LOGGER.error(f'Error during Mumble playback: {e}', exc_info=True)
         finally:

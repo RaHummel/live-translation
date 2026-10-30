@@ -84,6 +84,28 @@ fi
 echo "App bundle created successfully at dist/${APP_BUNDLE_NAME}"
 echo ""
 
+# Code signing
+# - CODESIGN_IDENTITY set (e.g. "Developer ID Application: Name (TEAMID)"):
+#   sign with hardened runtime so the app can be notarized.
+# - Otherwise: ad-hoc signature. Prevents the "app is damaged" error on
+#   Apple Silicon; users confirm the first launch via
+#   System Settings > Privacy & Security > "Open Anyway".
+APP_PATH="dist/${APP_BUNDLE_NAME}"
+ENTITLEMENTS="installer/macos/entitlements.plist"
+
+if [ -n "${CODESIGN_IDENTITY}" ]; then
+    echo "Signing app with identity: ${CODESIGN_IDENTITY}"
+    codesign --force --deep --timestamp --options runtime \
+        --entitlements "${ENTITLEMENTS}" \
+        --sign "${CODESIGN_IDENTITY}" \
+        "${APP_PATH}"
+else
+    echo "No CODESIGN_IDENTITY set - applying ad-hoc signature..."
+    codesign --force --deep --sign - "${APP_PATH}"
+fi
+codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+echo ""
+
 # Create DMG installer
 echo "Creating DMG installer..."
 
@@ -100,9 +122,11 @@ mkdir -p dist/installers
 rm -f "dist/installers/${DMG_NAME}"
 
 # Create DMG with create-dmg
-# --volicon does not work currently 
+ICON_PATH="$(pwd)/img/live-translation-app.icns"
+
 create-dmg \
     --volname "${APP_NAME}" \
+    --volicon "${ICON_PATH}" \
     --window-pos 200 120 \
     --window-size 600 400 \
     --icon-size 100 \
@@ -113,6 +137,37 @@ create-dmg \
     "dist/installers/${DMG_NAME}" \
     "dist/${APP_BUNDLE_NAME}"
 
+DMG_PATH="dist/installers/${DMG_NAME}"
+
+if [ -n "${CODESIGN_IDENTITY}" ]; then
+    echo "Signing DMG..."
+    codesign --force --timestamp --sign "${CODESIGN_IDENTITY}" "${DMG_PATH}"
+
+    # Notarization (create profile once with:
+    #   xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <TEAMID>)
+    if [ -n "${NOTARY_PROFILE}" ]; then
+        echo "Submitting DMG for notarization (this may take a few minutes)..."
+        xcrun notarytool submit "${DMG_PATH}" --keychain-profile "${NOTARY_PROFILE}" --wait
+        xcrun stapler staple "${DMG_PATH}"
+        spctl -a -t open --context context:primary-signature -vv "${DMG_PATH}" || true
+    else
+        echo "NOTARY_PROFILE not set - skipping notarization."
+    fi
+fi
+
+# Set the Finder icon of the .dmg file itself (stored as extended attribute,
+# so it is done last, after signing/notarization)
+echo "Setting DMG file icon..."
+osascript -l JavaScript - "${ICON_PATH}" "$(pwd)/${DMG_PATH}" <<'EOF'
+ObjC.import('AppKit');
+function run(argv) {
+    const img = $.NSImage.alloc.initWithContentsOfFile(argv[0]);
+    if (img.isNil()) throw new Error('Cannot load icon: ' + argv[0]);
+    if (!$.NSWorkspace.sharedWorkspace.setIconForFileOptions(img, argv[1], 0)) {
+        throw new Error('Cannot set icon on ' + argv[1]);
+    }
+}
+EOF
 
 echo ""
 echo "======================================"
@@ -126,6 +181,9 @@ echo "  1. Mount the DMG: open dist/installers/${DMG_NAME}"
 echo "  2. Drag the app to Applications"
 echo "  3. Run from Applications folder"
 echo ""
-echo "Note: The app is not code-signed. Users may need to right-click"
-echo "      and select 'Open' the first time to bypass Gatekeeper."
-echo ""
+if [ -z "${CODESIGN_IDENTITY}" ] || [ -z "${NOTARY_PROFILE}" ]; then
+    echo "Note: The app is not notarized. On first launch macOS blocks it;"
+    echo "      open System Settings > Privacy & Security and click 'Open Anyway'"
+    echo "      (macOS 14 and older: right-click the app and select 'Open')."
+    echo ""
+fi

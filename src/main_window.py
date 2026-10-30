@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+from dataclasses import replace
 
 from PySide6.QtCore import QFile, QSize, Qt, QTextStream, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
@@ -34,8 +35,8 @@ from config.model.config_models import (
 from controllers.mumble_server_controller import MumbleServerController
 from controllers.translation_controller import TranslationController
 from gui_elements.about_dialog import AboutDialog
-from gui_elements.audio_input_widget import AudioInputWidget
-from gui_elements.audio_output_widget import AudioOutputWidget
+from gui_elements.advanced_settings_dialog import AdvancedSettings, AdvancedSettingsDialog
+from gui_elements.audio_widget import AudioWidget
 from gui_elements.live_output_widget import LiveOutputWidget
 from gui_elements.translator_widget import TranslatorWidget
 from utils.language_names import display_name
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Live Translation')
         self.setMinimumSize(1200, 750)
         self._config_manager = config_manager
+        self._apply_hidden_settings(config_manager.config)
 
         # Actions are created here and reused
         self._create_actions()
@@ -88,6 +90,10 @@ class MainWindow(QMainWindow):
         self.status_label_signal.connect(self._update_status_label)
         self.start_button_signal.connect(self.start_action.setEnabled)
         self.stop_button_signal.connect(self.stop_action.setEnabled)
+        # Advanced settings only apply on the next start; lock them while translation is running.
+        self.start_button_signal.connect(self.advanced_settings_action.setEnabled)
+        self.start_button_signal.connect(self.translator_tab_widget.advanced_settings_button.setEnabled)
+        self.translator_tab_widget.advanced_settings_requested.connect(self.advanced_settings_action.trigger)
 
         # Connect controller signals
         self._controller.status_message_signal.connect(self.status_message_signal.emit)
@@ -103,20 +109,20 @@ class MainWindow(QMainWindow):
 
         # Connect MumbleServerController signals
         self._mumble_server_controller.status_changed.connect(lambda msg: self._statusBar.showMessage(msg, 3000))
-        self._mumble_server_controller.status_changed.connect(self.output_tab_widget.mumble_widget.set_server_status)
+        self._mumble_server_controller.status_changed.connect(self.audio_tab_widget.mumble_widget.set_server_status)
         self._mumble_server_controller.server_started.connect(
-            lambda: self.output_tab_widget.mumble_widget.set_server_running(True)
+            lambda: self.audio_tab_widget.mumble_widget.set_server_running(True)
         )
         self._mumble_server_controller.server_stopped.connect(
-            lambda: self.output_tab_widget.mumble_widget.set_server_running(False)
+            lambda: self.audio_tab_widget.mumble_widget.set_server_running(False)
         )
         self._mumble_server_controller.server_error.connect(
             lambda msg: QMessageBox.critical(self, 'Mumble Server Error', msg)
         )
 
         # Connect mumble widget manual server control buttons
-        self.output_tab_widget.mumble_widget.start_server_requested.connect(self._handle_manual_server_start)
-        self.output_tab_widget.mumble_widget.stop_server_requested.connect(self._mumble_server_controller.stop)
+        self.audio_tab_widget.mumble_widget.start_server_requested.connect(self._handle_manual_server_start)
+        self.audio_tab_widget.mumble_widget.stop_server_requested.connect(self._mumble_server_controller.stop)
 
         LOGGER.debug('All signals connected.')
 
@@ -162,6 +168,10 @@ class MainWindow(QMainWindow):
         self.open_config_folder_action.setStatusTip('Open the folder that contains application configuration files')
         self.open_config_folder_action.triggered.connect(self._open_config_folder)
 
+        self.advanced_settings_action = QAction('Advanced Settings...', self)
+        self.advanced_settings_action.setStatusTip('Audio and segmentation settings most users never need to change')
+        self.advanced_settings_action.triggered.connect(self._show_advanced_settings)
+
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('&File')
@@ -171,6 +181,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.exit_action)
 
         options_menu = menu_bar.addMenu('&Options')
+        options_menu.addAction(self.advanced_settings_action)
+        options_menu.addSeparator()
         options_menu.addAction(self.open_log_folder_action)
         options_menu.addAction(self.open_config_folder_action)
 
@@ -203,12 +215,10 @@ class MainWindow(QMainWindow):
 
         self.tabs_config = QTabWidget(tabPosition=QTabWidget.TabPosition.North)
         self.tabs_config.tabBar().setUsesScrollButtons(False)
-        self.audio_tab_widget = AudioInputWidget(config.input_settings)
+        self.audio_tab_widget = AudioWidget(config.input_settings, config.output_settings)
         self.translator_tab_widget = TranslatorWidget(config.translator_settings)
-        self.output_tab_widget = AudioOutputWidget(config.output_settings)
         self.tabs_config.addTab(self.audio_tab_widget, 'Audio')
         self.tabs_config.addTab(self.translator_tab_widget, 'Translator')
-        self.tabs_config.addTab(self.output_tab_widget, 'Output')
         content_layout.addWidget(self.tabs_config, 1)
 
         separator_line_v = QFrame(frameShape=QFrame.Shape.VLine, frameShadow=QFrame.Shadow.Sunken)
@@ -230,6 +240,19 @@ class MainWindow(QMainWindow):
         except Exception as e:
             LOGGER.exception('Failed to open About dialog: %s', e)
             QMessageBox.warning(self, 'About', 'Could not open About dialog.')
+
+    def _apply_hidden_settings(self, config: UserConfig) -> None:
+        """Keeps settings that are not shown in the tabs, so they survive collecting the config."""
+        self._advanced_settings = AdvancedSettings.from_config(config)
+        google_settings = config.translator_settings.google_settings
+        self._endpointing_sensitivity = google_settings.endpointing_sensitivity if google_settings else 'short'
+
+    def _show_advanced_settings(self) -> None:
+        dialog = AdvancedSettingsDialog(self._advanced_settings, self)
+        if dialog.exec() == AdvancedSettingsDialog.DialogCode.Accepted:
+            self._advanced_settings = dialog.get_settings()
+            self._statusBar.showMessage('Advanced settings applied. Save the configuration to keep them.', 5000)
+            LOGGER.debug(f'Advanced settings updated: {self._advanced_settings}')
 
     def _get_log_directory(self) -> str:
         log_dir = ConfigManager.get_app_config_dir() / 'logs'
@@ -263,16 +286,12 @@ class MainWindow(QMainWindow):
             config = self._config_manager.load_config(file_path)
             self._populate_config_data(config)
             self._statusBar.showMessage(f'Configuration loaded from {file_path}', 3000)
-            self._populate_config_data(config)
-            self._statusBar.showMessage(f'Configuration loaded from {file_path}', 3000)
             self._update_status_label('Status: Config Loaded')
-            LOGGER.debug(f'Configuration loaded from "{file_path}".')
             LOGGER.debug(f'Configuration loaded from "{file_path}".')
         except Exception as e:
             error_msg = f'Error loading configuration from "{file_path}": {e}'
             LOGGER.error(error_msg, exc_info=True)
             QMessageBox.critical(self, 'Configuration Load Error', error_msg)
-            self._statusBar.showMessage('Configuration load failed.', 5000)
             self._statusBar.showMessage('Configuration load failed.', 5000)
             self._update_status_label('Status: Config Error')
 
@@ -300,9 +319,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, 'Configuration Save Error', error_msg)
 
     def _populate_config_data(self, config: UserConfig):
-        self.audio_tab_widget.update_settings(config.input_settings)
+        self._apply_hidden_settings(config)
+        self.audio_tab_widget.update_settings(config.input_settings, config.output_settings)
         self.translator_tab_widget.update_settings(config.translator_settings)
-        self.output_tab_widget.update_settings(config.output_settings)
         self.live_output_dashboard.update_settings(config.translator_settings)
         self._sync_speaker_target_languages()
         LOGGER.debug('GUI widgets populated with new configuration data.')
@@ -311,22 +330,23 @@ class MainWindow(QMainWindow):
         """Collects all configuration data from the GUI widgets."""
         LOGGER.debug('Collecting configuration data from GUI.')
         try:
+            advanced = self._advanced_settings
             input_settings = InputSettings(
                 input_device=self.audio_tab_widget.input_device.currentText(),
                 input_device_index=self.audio_tab_widget.input_device.currentData(),
-                input_channels=self.audio_tab_widget.input_channels.value(),
-                input_sample_rate=self.audio_tab_widget.input_sample_rate.value(),
+                input_channels=advanced.input_channels,
+                input_sample_rate=advanced.input_sample_rate,
             )
-            mumble_widget = self.output_tab_widget.mumble_widget
+            mumble_widget = self.audio_tab_widget.mumble_widget
             use_custom_server = mumble_widget.use_custom_server
             output_settings = OutputSettings(
-                output_method=self.output_tab_widget.output_method.currentText(),
-                output_sample_rate=self.output_tab_widget.output_sample_rate.value(),
-                chunk_len=self.output_tab_widget.chunk_len.value(),
+                output_method=self.audio_tab_widget.output_method.currentText(),
+                output_sample_rate=advanced.output_sample_rate,
+                chunk_len=advanced.chunk_len,
                 speaker_settings=SpeakerSettings(
-                    output_device=self.output_tab_widget.speaker_widget.output_device.currentText(),
-                    output_device_index=self.output_tab_widget.speaker_widget.output_device.currentData(),
-                    language_channel_mapping=self.output_tab_widget.speaker_widget.get_channel_mapping(),
+                    output_device=self.audio_tab_widget.speaker_widget.output_device.currentText(),
+                    output_device_index=self.audio_tab_widget.speaker_widget.output_device.currentData(),
+                    language_channel_mapping=self.audio_tab_widget.speaker_widget.get_channel_mapping(),
                 ),
                 mumble_settings=MumbleSettings(
                     ip_address=mumble_widget.mumble_ip.text() if use_custom_server else 'localhost',
@@ -378,9 +398,10 @@ class MainWindow(QMainWindow):
                     source_language=self.translator_tab_widget.google_tab_widget.google_source_lang.currentData(),
                     show_source_transcript=self.live_output_dashboard.show_source_transcript_checkbox.isChecked(),
                     target_languages=google_target_languages,
-                    endpointing_sensitivity=self.translator_tab_widget.google_tab_widget.get_endpointing_sensitivity(),
+                    endpointing_sensitivity=self._endpointing_sensitivity,
                     region=self.translator_tab_widget.google_tab_widget.get_region(),
                 ),
+                segmentation=replace(advanced.segmentation),
             )
             return UserConfig(
                 input_settings,
@@ -401,8 +422,8 @@ class MainWindow(QMainWindow):
         self._sync_speaker_target_languages()
 
     def _sync_speaker_target_languages(self) -> None:
-        if hasattr(self, 'output_tab_widget') and hasattr(self, 'translator_tab_widget'):
-            self.output_tab_widget.speaker_widget.set_target_languages(self._get_active_target_languages())
+        if hasattr(self, 'audio_tab_widget') and hasattr(self, 'translator_tab_widget'):
+            self.audio_tab_widget.speaker_widget.set_target_languages(self._get_active_target_languages())
 
     def _get_active_target_languages(self) -> set[str]:
         """Collect all currently checked target language keys from the active translator widget."""

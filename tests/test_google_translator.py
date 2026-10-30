@@ -5,6 +5,7 @@ import wave
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from google.api_core.exceptions import InvalidArgument
 from google.cloud.speech_v2.types import cloud_speech
 
 from config.model.config_models import (
@@ -13,6 +14,7 @@ from config.model.config_models import (
     LanguageSettings,
     MumbleSettings,
     OutputSettings,
+    SegmentationSettings,
     SpeakerSettings,
 )
 from translators.google_translator import GoogleTranslator
@@ -28,6 +30,7 @@ class TestGoogleTranslator(unittest.IsolatedAsyncioTestCase):
         auth_patcher.start()
         self.addCleanup(auth_patcher.stop)
 
+        self.segmentation_settings = SegmentationSettings()
         self.google_settings = GoogleSettings(
             credentials_path='',
             source_language='de-DE',
@@ -60,7 +63,12 @@ class TestGoogleTranslator(unittest.IsolatedAsyncioTestCase):
             patch('translators.google_translator.translate.TranslationServiceAsyncClient', return_value=MagicMock()),
             patch('translators.google_translator.texttospeech.TextToSpeechAsyncClient', return_value=AsyncMock()),
         ):
-            return GoogleTranslator(self.google_settings, self.input_settings, self.output_settings)
+            return GoogleTranslator(
+                self.google_settings,
+                self.input_settings,
+                self.output_settings,
+                segmentation_settings=self.segmentation_settings,
+            )
 
     # -- _get_endpointing_sensitivity -----------------------------------------------------
 
@@ -108,7 +116,7 @@ class TestGoogleTranslator(unittest.IsolatedAsyncioTestCase):
         translator = self._build_translator()
         translator._speech_client = FakeSpeechClient()
         translator._project_id = 'demo-project'
-        translator._translation_callbacks = MagicMock()
+        translator._pipeline._translation_callbacks = MagicMock()
         translator._translate_and_tts = AsyncMock(side_effect=lambda _t, _l: shutdown_event.set())
 
         async def mic_stream():
@@ -116,18 +124,19 @@ class TestGoogleTranslator(unittest.IsolatedAsyncioTestCase):
             await shutdown_event.wait()
 
         await translator._run_streaming_recognition(mic_stream(), shutdown_event)
+        await translator._pipeline.stop()
 
         streaming_config = captured['first_request'].streaming_config
         self.assertEqual(captured['first_request'].recognizer, 'projects/demo-project/locations/eu/recognizers/_')
         self.assertEqual(streaming_config.config.language_codes, ['de-DE'])
         self.assertEqual(streaming_config.config.model, 'chirp_3')
-        self.assertFalse(streaming_config.streaming_features.interim_results)
+        self.assertTrue(streaming_config.streaming_features.interim_results)
         self.assertEqual(
             streaming_config.streaming_features.endpointing_sensitivity,
             EndpointingSensitivity.ENDPOINTING_SENSITIVITY_SHORT,
         )
 
-        translator._translation_callbacks.update_source_field.assert_called_once_with('Hallo Welt')
+        translator._pipeline._translation_callbacks.update_source_field.assert_called_once_with('Hallo Welt')
         translator._translate_and_tts.assert_awaited_once_with('Hallo Welt', 'en-US')
 
     async def test_run_streaming_recognition_ignores_non_final_and_empty_results(self):
@@ -156,8 +165,145 @@ class TestGoogleTranslator(unittest.IsolatedAsyncioTestCase):
             await shutdown_event.wait()
 
         await translator._run_streaming_recognition(mic_stream(), shutdown_event)
+        await translator._pipeline.stop()
 
         translator._translate_and_tts.assert_not_awaited()
+
+    async def test_run_streaming_recognition_dispatches_interim_segments_in_order_without_respeak(self):
+        shutdown_event = asyncio.Event()
+
+        def response(transcript, is_final=False):
+            return SimpleNamespace(
+                results=[SimpleNamespace(alternatives=[SimpleNamespace(transcript=transcript)], is_final=is_final)]
+            )
+
+        class FakeSpeechClient:
+            async def streaming_recognize(self, requests):
+                await anext(requests)
+
+                async def response_iter():
+                    yield response('Das ist der erste Satz. Und dann')
+                    # Revision of already committed words must not be spoken again.
+                    yield response('Das ist ein erster Satz. Und dann geht es weiter')
+                    yield response('Das ist ein erster Satz. Und dann geht es weiter.', is_final=True)
+
+                return response_iter()
+
+        translator = self._build_translator()
+        translator._speech_client = FakeSpeechClient()
+        translator._project_id = 'demo-project'
+        translator._pipeline._translation_callbacks = MagicMock()
+        spoken = []
+
+        async def fake_translate_and_tts(text, language):
+            spoken.append((text, language))
+            if text.endswith('weiter.'):
+                shutdown_event.set()
+
+        translator._translate_and_tts = fake_translate_and_tts
+
+        async def mic_stream():
+            yield b'audio'
+            await shutdown_event.wait()
+
+        await asyncio.wait_for(translator._run_streaming_recognition(mic_stream(), shutdown_event), timeout=2)
+        await translator._pipeline.stop()
+
+        self.assertEqual(
+            spoken,
+            [('Das ist der erste Satz.', 'en-US'), ('Und dann geht es weiter.', 'en-US')],
+        )
+        self.assertEqual(
+            [c.args[0] for c in translator._pipeline._translation_callbacks.update_source_field.call_args_list],
+            ['Das ist der erste Satz.', 'Und dann geht es weiter.'],
+        )
+
+    async def test_run_streaming_recognition_without_interim_segmentation_sends_finals_only(self):
+        self.segmentation_settings.use_interim_segmentation = False
+        shutdown_event = asyncio.Event()
+        captured = {}
+
+        def response(transcript, is_final):
+            return SimpleNamespace(
+                results=[SimpleNamespace(alternatives=[SimpleNamespace(transcript=transcript)], is_final=is_final)]
+            )
+
+        class FakeSpeechClient:
+            async def streaming_recognize(self, requests):
+                captured['first_request'] = await anext(requests)
+
+                async def response_iter():
+                    yield response('Ein ganz langer Satz. Noch mehr Worte', is_final=False)
+                    yield response('Hallo Welt', is_final=True)
+
+                return response_iter()
+
+        translator = self._build_translator()
+        translator._speech_client = FakeSpeechClient()
+        translator._project_id = 'demo-project'
+        translator._translate_and_tts = AsyncMock(side_effect=lambda _t, _l: shutdown_event.set())
+
+        async def mic_stream():
+            yield b'audio'
+            await shutdown_event.wait()
+
+        await asyncio.wait_for(translator._run_streaming_recognition(mic_stream(), shutdown_event), timeout=2)
+        await translator._pipeline.stop()
+
+        self.assertFalse(captured['first_request'].streaming_config.streaming_features.interim_results)
+        translator._translate_and_tts.assert_awaited_once_with('Hallo Welt', 'en-US')
+
+    # -- TTS / backlog control ---------------------------------------------------------------
+
+    async def test_google_tts_uses_speaking_rate_from_backlog_and_registers_playout(self):
+        self.segmentation_settings.max_speaking_rate = 1.4
+        self.segmentation_settings.max_backlog_s = 5.0
+        translator = self._build_translator()
+        translator._pipeline.backlog_seconds = MagicMock(return_value=10.0)
+        translator._pipeline.register_playout = MagicMock()
+
+        translator._tts_client = AsyncMock()
+        translator._tts_client.synthesize_speech = AsyncMock(
+            return_value=SimpleNamespace(audio_content=self._wav(b'\x00\x10' * 16000))
+        )
+        translator._language_to_output = {'en-US': AsyncMock()}
+
+        await translator._google_tts('Hello world', 'en-US')
+
+        audio_config = translator._tts_client.synthesize_speech.await_args.kwargs['audio_config']
+        self.assertAlmostEqual(audio_config.speaking_rate, 1.4)
+        language, duration = translator._pipeline.register_playout.call_args.args
+        self.assertEqual(language, 'en-US')
+        self.assertAlmostEqual(duration, 1.0)
+
+    async def test_google_tts_falls_back_when_speaking_rate_is_rejected(self):
+        translator = self._build_translator()
+        translator._pipeline.backlog_seconds = MagicMock(return_value=10.0)
+
+        ok_response = SimpleNamespace(audio_content=self._wav(b'\x00\x10' * 10))
+        translator._tts_client = AsyncMock()
+        translator._tts_client.synthesize_speech = AsyncMock(side_effect=[InvalidArgument('no rate'), ok_response])
+        sound_output = AsyncMock()
+        translator._language_to_output = {'en-US': sound_output}
+
+        await translator._google_tts('Hello world', 'en-US')
+
+        calls = translator._tts_client.synthesize_speech.await_args_list
+        rates = [c.kwargs['audio_config'].speaking_rate for c in calls]
+        self.assertGreater(rates[0], 1.0)
+        self.assertEqual(rates[1], 1.0)
+        self.assertTrue(translator._pipeline.speaking_rate_disabled('en-US'))
+        sound_output.play.assert_awaited_once()
+
+    @staticmethod
+    def _wav(raw_pcm: bytes, sample_rate: int = 16000) -> bytes:
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(raw_pcm)
+        return buffer.getvalue()
 
     async def test_run_streaming_recognition_returns_early_without_project_id(self):
         translator = self._build_translator()

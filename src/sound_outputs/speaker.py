@@ -3,7 +3,6 @@ import logging
 import queue
 import threading
 from array import array
-from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, List, Mapping, Optional
 
 import sounddevice
@@ -32,9 +31,6 @@ class SpeakerRouter:
         }
         self._pending: dict[str, bytearray] = {language: bytearray() for language in self._language_channel_mapping}
         self._audio_stream: Optional[sounddevice.RawOutputStream] = None
-        self._executor = ThreadPoolExecutor(
-            max_workers=max(1, min(4, len(self._language_channel_mapping))), thread_name_prefix='SpeakerAudio'
-        )
         self._state_lock = threading.Lock()
         self._stopped = False
 
@@ -46,21 +42,17 @@ class SpeakerRouter:
         )
 
     async def play(self, language: str, output_stream: AudioReadableStream) -> None:
-        """Read one TTS stream and enqueue its mono PCM chunks for *language*."""
+        """Read one in-memory TTS stream and enqueue its mono PCM chunks for *language*."""
         if language not in self._queues:
             raise ValueError(f'No speaker channel configured for language "{language}".')
         self._ensure_audio_stream_initialized()
-        loop = asyncio.get_running_loop()
+        chunk_bytes = self._output_settings.chunk_len * self._sample_width
         try:
-            while not self._stopped:
-                data = await loop.run_in_executor(
-                    self._executor,
-                    output_stream.read,
-                    self._output_settings.chunk_len * self._sample_width,
-                )
-                if not data:
+            data = output_stream.read()
+            for offset in range(0, len(data), chunk_bytes):
+                if self._stopped:
                     break
-                await self._put_chunk(language, data)
+                await self._put_chunk(language, data[offset : offset + chunk_bytes])
         except asyncio.CancelledError:
             LOGGER.debug('Speaker playback for %s was cancelled.', language)
             raise
@@ -90,7 +82,6 @@ class SpeakerRouter:
                         break
             for pending in self._pending.values():
                 pending.clear()
-            self._executor.shutdown(wait=False, cancel_futures=True)
             LOGGER.debug('Speaker router stopped.')
 
     async def _put_chunk(self, language: str, data: bytes) -> None:
@@ -124,16 +115,19 @@ class SpeakerRouter:
         if status:
             LOGGER.warning('Speaker stream status: %s', status)
 
-        outdata[:] = b'\x00' * len(outdata)
-        output_samples = memoryview(outdata).cast('h')
         bytes_needed = frames * self._sample_width
+        channels = self._stream_channels
+        # Interleaved frame buffer, initialized with silence (covers underruns).
+        output_samples = array('h', bytes(len(outdata)))
         for language, one_based_channel in self._language_channel_mapping.items():
             raw_pcm = self._take_bytes(language, bytes_needed)
+            if not raw_pcm:
+                continue
             samples = array('h')
             samples.frombytes(raw_pcm[: len(raw_pcm) - (len(raw_pcm) % self._sample_width)])
-            channel_index = one_based_channel - 1
-            for frame_index, sample in enumerate(samples):
-                output_samples[frame_index * self._stream_channels + channel_index] = sample
+            start = one_based_channel - 1
+            output_samples[start : start + len(samples) * channels : channels] = samples
+        outdata[:] = output_samples.tobytes()
 
     def _take_bytes(self, language: str, count: int) -> bytes:
         pending = self._pending[language]
