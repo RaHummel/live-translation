@@ -90,7 +90,13 @@ class TranslationController(QObject):
             if aws_settings is None:
                 raise ValueError('AWS translator selected but AWS settings are not configured.')
 
-            translator = AWSTranslator(aws_settings, config.input_settings, config.output_settings, self._callbacks)
+            translator = AWSTranslator(
+                aws_settings,
+                config.input_settings,
+                config.output_settings,
+                self._callbacks,
+                config.translator_settings.segmentation,
+            )
             LOGGER.debug('AWS Translator initialized.')
             return translator, aws_settings.target_languages
 
@@ -100,7 +106,11 @@ class TranslationController(QObject):
                 raise ValueError('Google translator selected but Google settings are not configured.')
 
             translator = GoogleTranslator(
-                google_settings, config.input_settings, config.output_settings, self._callbacks
+                google_settings,
+                config.input_settings,
+                config.output_settings,
+                self._callbacks,
+                config.translator_settings.segmentation,
             )
             LOGGER.debug('Google Translator initialized.')
 

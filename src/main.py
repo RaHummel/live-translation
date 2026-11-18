@@ -98,6 +98,7 @@ def run_cli_mode(arguments, usr_config: UserConfig):
             usr_config.translator_settings.aws_settings,
             usr_config.input_settings,
             usr_config.output_settings,
+            segmentation_settings=usr_config.translator_settings.segmentation,
         )
     elif translator_type == 'google':
         # Ensure target languages from CLI are in the config
@@ -109,6 +110,7 @@ def run_cli_mode(arguments, usr_config: UserConfig):
             usr_config.translator_settings.google_settings,
             usr_config.input_settings,
             usr_config.output_settings,
+            segmentation_settings=usr_config.translator_settings.segmentation,
         )
     else:
         raise ValueError(f'Unsupported translator: {translator_type}')

@@ -1,3 +1,4 @@
+import errno
 import logging
 import re
 import socket
@@ -21,6 +22,9 @@ _STARTUP_TIMEOUT = 10  # seconds to wait for port to become available
 _NEW_OPTS_MIN_VERSION = (1, 6)
 
 _VERSION_RE = re.compile(r'(\d+)\.(\d+)\.(\d+)')
+
+# macOS: "Bad CPU type in executable" (x86_64 binary on arm64 without Rosetta 2)
+_EBADARCH = getattr(errno, 'EBADARCH', 86)
 
 
 class _ServerStartWorker(QObject):
@@ -89,6 +93,18 @@ class _ServerStartWorker(QObject):
 
             raise RuntimeError(f'Mumble Server did not become ready within {_STARTUP_TIMEOUT}s.')
 
+        except OSError as e:
+            if e.errno == _EBADARCH:
+                message = (
+                    f'Mumble Server binary {self._binary_path} was built for a different CPU architecture '
+                    '(x86_64). On Apple Silicon install Rosetta 2 with:\n'
+                    'softwareupdate --install-rosetta --agree-to-license'
+                )
+                LOGGER.error(message)
+                self.error.emit(message)
+                return
+            LOGGER.error('Failed to start Mumble Server: %s', e, exc_info=True)
+            self.error.emit(str(e))
         except Exception as e:
             LOGGER.error('Failed to start Mumble Server: %s', e, exc_info=True)
             self.error.emit(str(e))

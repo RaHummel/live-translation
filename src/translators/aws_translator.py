@@ -1,77 +1,50 @@
 import asyncio
+import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
+from xml.sax.saxutils import escape
 
 import boto3
 from amazon_transcribe.client import StartStreamTranscriptionEventStream, TranscribeStreamingClient
 from amazon_transcribe.handlers import TranscriptResultStreamHandler
 from amazon_transcribe.model import Result, TranscriptEvent
-from botocore.response import StreamingBody
+from botocore.exceptions import ClientError
 
-from config.model.config_models import AWSSettings, InputSettings, OutputSettings
+from config.model.config_models import AWSSettings, InputSettings, OutputSettings, SegmentationSettings
 from translation import SoundOutput, Translator
+from translators.segment_pipeline import SegmentPipeline
 from translators.translation_callbacks import TranslationCallbacks
+from utils.audio_utils import pcm_duration_seconds, tail_pause_seconds, trim_silence
 
 LOGGER = logging.getLogger(__name__)
 
+# Seconds queued segments may still be processed when the translation is stopped.
+_SHUTDOWN_DRAIN_TIMEOUT_S = 2.0
+
 
 class TranscriptEventHandler(TranscriptResultStreamHandler):
-    """Handles incoming transcript events from AWS Transcribe and triggers translation + TTS."""
+    """Feeds partial and final AWS Transcribe results into the segment pipeline."""
 
-    def __init__(
-        self,
-        output_stream,
-        polly_tts: Callable[[str, str], Awaitable[None]],
-        aws_settings: AWSSettings,
-        executor: ThreadPoolExecutor,
-        translate_client,
-        translation_callbacks: Optional[TranslationCallbacks] = None,
-    ):
+    def __init__(self, output_stream, pipeline: SegmentPipeline):
         super().__init__(output_stream)
-        self._polly_tts = polly_tts
-        self._aws_settings = aws_settings
-        self._executor = executor
-        self._translate = translate_client
-        self._translation_callbacks = translation_callbacks
+        self._pipeline = pipeline
 
     async def handle_transcript_event(self, transcript_event: TranscriptEvent):
         results: List[Result] = transcript_event.transcript.results
-        if (
-            results
-            and results[0].alternatives
-            and hasattr(results[0], 'is_partial')
-            and not results[0].is_partial
-            and results[0].channel_id == 'ch_0'
-        ):
-            transcript = results[0].alternatives[0].transcript
-            if self._translation_callbacks is not None:
-                self._translation_callbacks.update_source_field(transcript)
+        if not results or results[0].channel_id != 'ch_0':
+            return
 
-            tasks = [
-                asyncio.create_task(self._translate_and_tts(transcript, language))
-                for language in self._aws_settings.target_languages
-            ]
-            await asyncio.gather(*tasks)
+        result = results[0]
+        alternatives = result.alternatives
+        if not alternatives:
+            return
 
-    async def _translate_and_tts(self, transcript: str, language: str):
-        """Translates the transcript and performs TTS."""
-        loop = asyncio.get_running_loop()
-        trans_result = await loop.run_in_executor(
-            self._executor,
-            lambda: self._translate.translate_text(
-                Text=transcript,
-                SourceLanguageCode=self._aws_settings.source_language,
-                TargetLanguageCode=language,
-            ),
-        )
-        translated_text = trans_result.get('TranslatedText')
-
-        if self._translation_callbacks is not None:
-            self._translation_callbacks.update_target_field(language, translated_text)
-
-        await self._polly_tts(translated_text, language)
-        LOGGER.debug(f'Translation and TTS processed for language: {language}')
+        transcript = alternatives[0].transcript
+        if getattr(result, 'is_partial', False):
+            self._pipeline.on_interim(transcript)
+        else:
+            self._pipeline.on_final(transcript)
 
 
 class AWSTranslator(Translator):
@@ -81,6 +54,7 @@ class AWSTranslator(Translator):
         input_settings: InputSettings,
         output_settings: OutputSettings,
         translation_callbacks: Optional[TranslationCallbacks] = None,
+        segmentation_settings: Optional[SegmentationSettings] = None,
     ):
         """Initializes the AWSTranslator instance.
 
@@ -89,6 +63,7 @@ class AWSTranslator(Translator):
             input_settings (InputSettings): Input settings for the translator.
             output_settings (OutputSettings): Output settings for the translator.
             translation_callbacks (TranslationCallbacks, optional): Callbacks for the translated text.
+            segmentation_settings (SegmentationSettings, optional): Segmentation and backlog control settings.
         """
         self._aws_settings = aws_settings
         self._input_settings = input_settings
@@ -110,6 +85,14 @@ class AWSTranslator(Translator):
         self._write_chunks_task: Optional[asyncio.Task[None]] = None
         self._handler_task: Optional[asyncio.Task[None]] = None
 
+        # Segmentation, ordered per-language output and backlog control.
+        self._pipeline = SegmentPipeline(
+            settings=segmentation_settings or SegmentationSettings(),
+            target_languages=aws_settings.target_languages,
+            speak=lambda text, language: self._translate_and_tts(text, language),
+            translation_callbacks=translation_callbacks,
+        )
+
         LOGGER.debug('AWS Translator initialized')
 
     async def start_translation(
@@ -125,16 +108,13 @@ class AWSTranslator(Translator):
                 language_code=self._aws_settings.source_language,
                 media_sample_rate_hz=self._input_settings.input_sample_rate,
                 media_encoding='pcm',
+                # Less revision of already transcribed words in partial results.
+                enable_partial_results_stabilization=True,
+                partial_results_stability='high',
             )
 
-            handler = TranscriptEventHandler(
-                self._transcription_stream.output_stream,
-                self._aws_polly_tts,
-                self._aws_settings,
-                self._executor,
-                self._translate,
-                self._translation_callbacks,
-            )
+            self._pipeline.start()
+            handler = TranscriptEventHandler(self._transcription_stream.output_stream, self._pipeline)
 
             LOGGER.info('AWS Translator started.')
 
@@ -177,6 +157,7 @@ class AWSTranslator(Translator):
                     LOGGER.debug('Forcing cancellation of handler task.')
                     self._handler_task.cancel()
 
+            await self._pipeline.stop(drain_timeout=_SHUTDOWN_DRAIN_TIMEOUT_S)
             self._executor.shutdown(wait=False)
             LOGGER.debug('AWS Translator shutdown complete.')
 
@@ -186,27 +167,84 @@ class AWSTranslator(Translator):
         async for chunk in mic_stream:
             await self._transcription_stream.input_stream.send_audio_event(audio_chunk=chunk)
 
+    async def _translate_and_tts(self, transcript: str, language: str):
+        """Translates the transcript and performs TTS."""
+        loop = asyncio.get_running_loop()
+        trans_result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._translate.translate_text(
+                Text=transcript,
+                SourceLanguageCode=self._aws_settings.source_language,
+                TargetLanguageCode=language,
+            ),
+        )
+        translated_text = trans_result.get('TranslatedText')
+        if not translated_text:
+            LOGGER.warning(f'AWS Translate returned empty translation for language: {language}')
+            return
+
+        if self._translation_callbacks is not None:
+            self._translation_callbacks.update_target_field(language, translated_text)
+
+        await self._aws_polly_tts(translated_text, language)
+        LOGGER.debug(f'Translation and TTS processed for language: {language}')
+
     async def _aws_polly_tts(self, text: str, language: str):
         """Converts text to speech using AWS Polly and plays it."""
         LOGGER.debug(f"Synthesizing speech for text: '{text[:50]}...' in language: {language}")
 
         try:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                self._executor,
-                lambda: self._polly.synthesize_speech(
-                    Engine=self._aws_settings.target_languages[language].engine,
-                    LanguageCode=language,
-                    Text=text,
-                    VoiceId=self._aws_settings.target_languages[language].voice_id,
-                    SampleRate=str(self._output_settings.output_sample_rate),
-                    OutputFormat='pcm',
-                ),
-            )
+            speaking_rate = self._pipeline.speaking_rate_for(language)
+            try:
+                pcm = await self._synthesize(text, language, speaking_rate)
+            except ClientError as e:
+                if speaking_rate == 1.0:
+                    raise
+                LOGGER.warning(f'Polly rejected speaking rate ({e}); disabling rate control for {language}.')
+                self._pipeline.disable_speaking_rate(language)
+                speaking_rate = 1.0
+                pcm = await self._synthesize(text, language, speaking_rate)
 
-            output_bytes: StreamingBody = response['AudioStream']
+            # Polly returns signed 16-bit little endian mono PCM.
+            sample_rate = self._output_settings.output_sample_rate
+            pcm = trim_silence(pcm, sample_rate, tail_s=tail_pause_seconds(text, speaking_rate))
+            if not pcm:
+                LOGGER.debug(f'Polly returned no audible audio for {language}, skipping playback.')
+                return
+
+            self._pipeline.register_playout(language, pcm_duration_seconds(pcm, sample_rate))
             LOGGER.debug(f'Received audio stream from Polly for language: {language}.')
-            await self._language_to_output[language].play(output_bytes)
+            await self._language_to_output[language].play(io.BytesIO(pcm))
             LOGGER.debug(f'Audio playback initiated for language: {language}.')
         except Exception as e:
             LOGGER.error(f'Error during Polly TTS or playback for language {language}: {e}', exc_info=True)
+
+    async def _synthesize(self, text: str, language: str, speaking_rate: float) -> bytes:
+        """Synthesizes ``text`` with Polly; uses SSML prosody only if the rate differs from normal."""
+        language_settings = self._aws_settings.target_languages[language]
+        request = {
+            'Engine': language_settings.engine,
+            'LanguageCode': language,
+            'Text': text,
+            'VoiceId': language_settings.voice_id,
+            'SampleRate': str(self._output_settings.output_sample_rate),
+            'OutputFormat': 'pcm',
+        }
+        if speaking_rate != 1.0:
+            request['Text'] = self._to_ssml(text, speaking_rate)
+            request['TextType'] = 'ssml'
+
+        def synthesize() -> bytes:
+            response = self._polly.synthesize_speech(**request)
+            stream = response['AudioStream']
+            try:
+                return stream.read()
+            finally:
+                stream.close()
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, synthesize)
+
+    @staticmethod
+    def _to_ssml(text: str, speaking_rate: float) -> str:
+        return f'<speak><prosody rate="{round(speaking_rate * 100)}%">{escape(text)}</prosody></speak>'

@@ -5,6 +5,17 @@ INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 16000
 CHUNK_LEN = 1024
 
+# Allowed ranges (inclusive) for advanced settings, shared by the config parser and the GUI.
+INPUT_SAMPLE_RATE_RANGE = (8000, 192000)
+INPUT_CHANNELS_RANGE = (1, 2)
+OUTPUT_SAMPLE_RATES = (8000, 16000)  # AWS Polly only supports these for PCM
+CHUNK_LEN_RANGE = (256, 4096)
+MIN_SEGMENT_WORDS_RANGE = (1, 50)
+MAX_SEGMENT_WORDS_RANGE = (3, 100)
+SEGMENT_WORDS_MIN_GAP = 2  # max_segment_words >= min_segment_words + gap
+MAX_SPEAKING_RATE_RANGE = (1.0, 2.0)
+MAX_BACKLOG_S_RANGE = (1.5, 60.0)
+
 OUTPUT = ['speaker', 'mumble']
 
 MURMUR_BINARY = 'mumble-server.exe' if sys.platform == 'win32' else 'murmurd'
@@ -563,8 +574,5 @@ GOOGLE_STT_MODELS = {
     ]
 }
 
-GOOGLE_ENDPOINTING_OPTIONS = {
-    'Normal': 'standard',
-    'Fast': 'short',
-    'Max': 'supershort',
-}
+# Config-file only; 'short' gave the best latency/accuracy trade-off in tests.
+GOOGLE_ENDPOINTING_SENSITIVITIES = ('standard', 'short', 'supershort')

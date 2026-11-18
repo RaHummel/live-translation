@@ -8,15 +8,17 @@ from typing import AsyncGenerator, Dict, Optional
 
 import google.auth
 from google.api_core.client_options import ClientOptions
-from google.api_core.exceptions import GoogleAPIError
+from google.api_core.exceptions import GoogleAPIError, InvalidArgument
 from google.cloud import speech_v2 as speech
 from google.cloud import texttospeech, translate
 from google.cloud.speech_v2.types import cloud_speech
 
-from config.model.config_models import GoogleSettings, InputSettings, OutputSettings
+from config.model.config_models import GoogleSettings, InputSettings, OutputSettings, SegmentationSettings
 from constants import GOOGLE_STT_REGIONS
 from translation import SoundOutput, Translator
+from translators.segment_pipeline import SegmentPipeline
 from translators.translation_callbacks import TranslationCallbacks
+from utils.audio_utils import pcm_duration_seconds, tail_pause_seconds, trim_silence
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ class GoogleTranslator(Translator):
         input_settings: InputSettings,
         output_settings: OutputSettings,
         translation_callbacks: Optional[TranslationCallbacks] = None,
+        segmentation_settings: Optional[SegmentationSettings] = None,
     ):
         """Initializes the GoogleTranslator instance."""
         self._google_settings = google_settings
@@ -48,6 +51,14 @@ class GoogleTranslator(Translator):
 
         self._language_to_output: Dict[str, SoundOutput] = {}
 
+        # Segmentation, ordered per-language output and backlog control.
+        self._pipeline = SegmentPipeline(
+            settings=segmentation_settings or SegmentationSettings(),
+            target_languages=google_settings.target_languages,
+            speak=lambda text, language: self._translate_and_tts(text, language),
+            translation_callbacks=translation_callbacks,
+        )
+
         LOGGER.debug('Google Translator initialized')
 
     async def start_translation(
@@ -65,6 +76,8 @@ class GoogleTranslator(Translator):
             self._speech_client = speech.SpeechAsyncClient(client_options=client_options)
             self._translate_client = translate.TranslationServiceAsyncClient()
             self._tts_client = texttospeech.TextToSpeechAsyncClient()
+
+            self._pipeline.start()
 
             LOGGER.info('Google Translator started.')
 
@@ -84,6 +97,7 @@ class GoogleTranslator(Translator):
         except Exception as e:
             LOGGER.error(f'An unexpected error occurred during Google translation: {e}', exc_info=True)
         finally:
+            await self._pipeline.stop()
             self._speech_client = None
             self._translate_client = None
             self._tts_client = None
@@ -151,7 +165,7 @@ class GoogleTranslator(Translator):
                 streaming_config = cloud_speech.StreamingRecognitionConfig(
                     config=recognition_config,
                     streaming_features=cloud_speech.StreamingRecognitionFeatures(
-                        interim_results=False,
+                        interim_results=self._pipeline.uses_interim_results,
                         endpointing_sensitivity=self._get_endpointing_sensitivity(),
                     ),
                 )
@@ -162,29 +176,17 @@ class GoogleTranslator(Translator):
                     LOGGER.error('Google Speech client is not initialized.')
                     return
 
+                # A new STT session starts a new utterance.
+                self._pipeline.reset()
+
                 LOGGER.debug('Initiating streaming_recognize call...')
                 responses = await self._speech_client.streaming_recognize(requests=requests)
                 LOGGER.debug('streaming_recognize call successful, awaiting responses...')
 
                 async for response in responses:
-                    if not response.results:
-                        continue
-
-                    result = response.results[0]
-                    if not result.alternatives:
-                        continue
-
-                    if result.is_final:
-                        transcript = result.alternatives[0].transcript
-                        LOGGER.debug(f'Final transcript received: {transcript}')
-                        if self._translation_callbacks is not None:
-                            self._translation_callbacks.update_source_field(transcript)
-
-                        for language in self._google_settings.target_languages:
-                            asyncio.create_task(self._translate_and_tts(transcript, language))
-
-                        # Yield control to allow other tasks to run
-                        await asyncio.sleep(0)
+                    self._handle_stt_response(response)
+                    # Yield control to allow other tasks to run
+                    await asyncio.sleep(0)
 
             except asyncio.CancelledError:
                 LOGGER.debug('STT streaming task cancelled.')
@@ -200,6 +202,24 @@ class GoogleTranslator(Translator):
                 await asyncio.sleep(0.1)
             finally:
                 LOGGER.debug('Google STT streaming recognition stream session finished.')
+
+    def _handle_stt_response(self, response) -> None:
+        """Routes one STT response into the segment pipeline."""
+        has_final = any(result.is_final for result in response.results)
+        results = [result for result in response.results if result.alternatives]
+
+        final_text = self._join_transcripts(result for result in results if result.is_final)
+        interim_text = self._join_transcripts(result for result in results if not result.is_final)
+
+        if has_final:
+            # Always end the utterance on a final result, even if it carries no text.
+            self._pipeline.on_final(final_text)
+        if interim_text:
+            self._pipeline.on_interim(interim_text)
+
+    @staticmethod
+    def _join_transcripts(results) -> str:
+        return ' '.join(result.alternatives[0].transcript.strip() for result in results).strip()
 
     async def _translate_and_tts(self, transcript: str, language: str):
         """Translates the transcript and performs Text-to-Speech."""
@@ -248,27 +268,49 @@ class GoogleTranslator(Translator):
             lang_settings = self._google_settings.target_languages[language]
             voice_id = lang_settings.voice_id
 
+            speaking_rate = self._pipeline.speaking_rate_for(language)
+
             synthesis_input = texttospeech.SynthesisInput(text=text)
             voice = texttospeech.VoiceSelectionParams(language_code=language, name=voice_id)
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                sample_rate_hertz=self._output_settings.output_sample_rate,
-            )
 
-            response = await self._tts_client.synthesize_speech(
-                input=synthesis_input, voice=voice, audio_config=audio_config
-            )
+            try:
+                response = await self._synthesize(synthesis_input, voice, speaking_rate)
+            except InvalidArgument as e:
+                if speaking_rate == 1.0:
+                    raise
+                LOGGER.warning(f'Voice {voice_id} rejected speaking_rate ({e}); disabling rate control for {language}.')
+                self._pipeline.disable_speaking_rate(language)
+                speaking_rate = 1.0
+                response = await self._synthesize(synthesis_input, voice, speaking_rate)
 
-            # LINEAR16 enthält WAV-Header → strippen, sonst Klack am Anfang
+            # LINEAR16 contains WAV Header, so we need to strip it to get raw PCM for playback.
             wav_buffer = io.BytesIO(response.audio_content)
             with wave.open(wav_buffer) as wf:
+                sample_rate = wf.getframerate()
                 raw_pcm = wf.readframes(wf.getnframes())
+
+            raw_pcm = trim_silence(raw_pcm, sample_rate, tail_s=tail_pause_seconds(text, speaking_rate))
+            if not raw_pcm:
+                LOGGER.debug(f'TTS output for {language} was silent, skipping playback.')
+                return
+
+            self._pipeline.register_playout(language, pcm_duration_seconds(raw_pcm, sample_rate))
             await self._language_to_output[language].play(io.BytesIO(raw_pcm))
 
         except GoogleAPIError as e:
             LOGGER.error(f'Google API Error in TTS for {language}: {e}')
         except Exception as e:
             LOGGER.error(f'Error during Google TTS or playback for language {language}: {e}', exc_info=True)
+
+    async def _synthesize(self, synthesis_input, voice, speaking_rate: float):
+        if self._tts_client is None:
+            raise RuntimeError('Google TTS client is not initialized.')
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+            sample_rate_hertz=self._output_settings.output_sample_rate,
+            speaking_rate=speaking_rate,
+        )
+        return await self._tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
 
     @staticmethod
     def _resolve_project_id(credentials_path: str) -> Optional[str]:

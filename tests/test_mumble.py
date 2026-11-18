@@ -1,7 +1,7 @@
+import io
 import unittest
 from unittest.mock import MagicMock, patch
 
-from botocore.response import StreamingBody
 from pymumble_py3.constants import PYMUMBLE_CONN_STATE_CONNECTED, PYMUMBLE_CONN_STATE_NOT_CONNECTED
 
 from config.model.config_models import MumbleSettings, OutputSettings
@@ -45,21 +45,16 @@ class TestMumbleClient(unittest.IsolatedAsyncioTestCase):
         self.mock_mumble.stop.assert_called_once()
 
     async def test_play_success(self):
-        mock_output = MagicMock(spec=StreamingBody)
-        mock_output.read.side_effect = [b'data1', b'data2', b'']
         self.mock_mumble.sound_output = MagicMock()
 
-        await self.client.play(mock_output)
+        await self.client.play(io.BytesIO(b'data1data2'))
 
-        self.assertEqual(self.mock_mumble.sound_output.add_sound.call_count, 2)
-        mock_output.read.assert_called_with(2048)
+        self.mock_mumble.sound_output.add_sound.assert_called_once_with(b'data1data2')
 
     async def test_play_sound_output_not_init(self):
-        mock_output = MagicMock(spec=StreamingBody)
-        mock_output.read.side_effect = [b'data1', b'']
         self.mock_mumble.sound_output = None
 
-        await self.client.play(mock_output)
+        await self.client.play(io.BytesIO(b'data1'))
         # Should not crash, just log warning
 
     def test_connect_with_single_channel(self):

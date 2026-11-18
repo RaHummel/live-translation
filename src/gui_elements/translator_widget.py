@@ -2,7 +2,16 @@ import logging
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from config.model.config_models import TranslatorSettings
 from constants import TRANSLATOR
@@ -14,6 +23,7 @@ LOGGER = logging.getLogger(__name__)
 
 class TranslatorWidget(QWidget):
     provider_changed = Signal(str)
+    advanced_settings_requested = Signal()
 
     """
     A widget for configuring translation service settings, including
@@ -61,7 +71,16 @@ class TranslatorWidget(QWidget):
         self.translator_select.setToolTip('Choose the translation provider to be used.')
         self.translator_select.currentTextChanged.connect(self._update_translation_fields)
 
-        service_layout.addRow('Service Provider:', self.translator_select)
+        self.advanced_settings_button = QPushButton('Advanced…')
+        self.advanced_settings_button.setToolTip('Audio and segmentation settings most users never need to change.')
+        self.advanced_settings_button.setStatusTip('Open the advanced settings.')
+        self.advanced_settings_button.clicked.connect(self.advanced_settings_requested.emit)
+
+        provider_layout = QHBoxLayout()
+        provider_layout.addWidget(self.translator_select, 1)
+        provider_layout.addWidget(self.advanced_settings_button)
+
+        service_layout.addRow('Service Provider:', provider_layout)
         main_layout.addWidget(service_select_group)
 
         self.translator_stacked = QStackedWidget()

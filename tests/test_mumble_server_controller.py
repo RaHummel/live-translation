@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from controllers.mumble_server_controller import MumbleServerController, _ServerStartWorker
+from controllers.mumble_server_controller import _EBADARCH, MumbleServerController, _ServerStartWorker
 
 
 class TestMumbleServerController(unittest.TestCase):
@@ -159,3 +159,14 @@ class TestServerStartWorker(unittest.TestCase):
 
     def test_port_open_false_when_connection_fails(self):
         self.assertFalse(_ServerStartWorker._port_open(1))  # port 1 unlikely open/reserved
+
+    @patch('controllers.mumble_server_controller.subprocess.Popen')
+    @patch.object(_ServerStartWorker, '_detect_murmur_version', return_value=None)
+    def test_run_reports_rosetta_hint_on_bad_cpu_type(self, _mock_version, mock_popen):
+        mock_popen.side_effect = OSError(_EBADARCH, 'Bad CPU type in executable')
+
+        self.worker.run()
+
+        self.worker.started.emit.assert_not_called()
+        message = self.worker.error.emit.call_args.args[0]
+        self.assertIn('softwareupdate --install-rosetta', message)

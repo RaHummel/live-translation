@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from config.model.config_models import SpeakerSettings
-from gui_elements.audio_input_widget import select_device_in_combo
+from gui_elements.device_combo import select_device_in_combo
 from sound_outputs.speaker import Speaker
 from utils.language_names import display_name, sorted_by_display_name
 

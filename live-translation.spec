@@ -146,7 +146,7 @@ if IS_MAC:
         coll,
         name=f'{APP_NAME}.app',
         icon='img/live-translation-app.icns',
-        bundle_identifier=f'com.rahummel.{APP_NAME}',
+        bundle_identifier='com.rahummel.live-translation',
         version=APP_VERSION,
         info_plist={
             'NSPrincipalClass': 'NSApplication',

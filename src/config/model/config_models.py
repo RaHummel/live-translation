@@ -51,6 +51,15 @@ class AWSSettings:
 
 
 @dataclass
+class SegmentationSettings:
+    use_interim_segmentation: bool = True
+    min_segment_words: int = 3
+    max_segment_words: int = 30
+    max_speaking_rate: float = 1.4
+    max_backlog_s: float = 6.0
+
+
+@dataclass
 class GoogleSettings:
     credentials_path: str
     source_language: str
@@ -65,6 +74,7 @@ class TranslatorSettings:
     translator: str
     aws_settings: Optional[AWSSettings] = field(default=None)
     google_settings: Optional[GoogleSettings] = field(default=None)
+    segmentation: SegmentationSettings = field(default_factory=SegmentationSettings)
 
 
 @dataclass

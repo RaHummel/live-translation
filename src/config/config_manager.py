@@ -11,17 +11,23 @@ from config.model.config_models import (
     LanguageSettings,
     MumbleSettings,
     OutputSettings,
+    SegmentationSettings,
     SpeakerSettings,
     TranslatorSettings,
     UserConfig,
 )
 from constants import (
     CHUNK_LEN,
-    GOOGLE_ENDPOINTING_OPTIONS,
+    GOOGLE_ENDPOINTING_SENSITIVITIES,
     GOOGLE_STT_REGIONS,
     INPUT_CHANNELS,
     INPUT_SAMPLE_RATE,
+    MAX_BACKLOG_S_RANGE,
+    MAX_SEGMENT_WORDS_RANGE,
+    MAX_SPEAKING_RATE_RANGE,
+    MIN_SEGMENT_WORDS_RANGE,
     OUTPUT_SAMPLE_RATE,
+    SEGMENT_WORDS_MIN_GAP,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -47,13 +53,24 @@ class ConfigManager:
         with open(self._config_path, 'w') as file:
             json.dump(json_data, file, indent=2)
 
-    def load_config(self) -> UserConfig:
+    def load_config(self, config_path: str | Path | None = None) -> UserConfig:
         """
         Load the configuration data from a file.
+
+        Args:
+            config_path: Explicit file chosen by the user. Errors are raised instead of silently falling back
+                to defaults. Without it, the app config file is read and missing/broken files yield defaults.
 
         Returns:
             UserConfig: The loaded configuration data.
         """
+        if config_path is not None:
+            with open(config_path, 'r') as file:
+                raw = json.load(file)
+            if not isinstance(raw, dict):
+                raise ValueError('The configuration file must contain a JSON object.')
+            return ConfigManager.create_user_config(raw)
+
         raw_config = {}
         try:
             with open(self._config_path, 'r') as file:
@@ -167,13 +184,10 @@ class ConfigManager:
         )
 
     @staticmethod
-    def _parse_speaker_channel_mapping(raw: object) -> dict[str, int]:
+    def _parse_speaker_channel_mapping(raw: dict) -> dict[str, int]:
         """Parse persisted one-based language-to-output-channel assignments."""
-        if not isinstance(raw, dict):
-            LOGGER.warning('Ignoring invalid speaker language channel mapping.')
-            return {}
-
         mapping: dict[str, int] = {}
+
         for language, channel in raw.items():
             try:
                 parsed_channel = int(channel)
@@ -237,7 +251,7 @@ class ConfigManager:
         """
 
         endpointing = raw.get('endpointing_sensitivity', 'short')
-        if endpointing not in GOOGLE_ENDPOINTING_OPTIONS.values():
+        if endpointing not in GOOGLE_ENDPOINTING_SENSITIVITIES:
             endpointing = 'short'
 
         region = raw.get('region', 'eu')
@@ -251,6 +265,34 @@ class ConfigManager:
             target_languages=ConfigManager._parse_language_settings(raw.get('target_languages', {})),
             endpointing_sensitivity=endpointing,
             region=region,
+        )
+
+    @staticmethod
+    def _parse_segmentation_settings(raw: dict) -> SegmentationSettings:
+        """Parse the provider independent segmentation settings, falling back to defaults for invalid values."""
+        defaults = SegmentationSettings()
+
+        def number(key: str, default: float, value_range: tuple[float, float], cast: type) -> float:
+            minimum, maximum = value_range
+            value = raw.get(key, default)
+            if isinstance(value, bool):
+                return default
+            try:
+                parsed = cast(value)
+            except TypeError, ValueError:
+                LOGGER.warning('Ignoring invalid segmentation value %r for %r.', value, key)
+                return default
+            return min(max(parsed, minimum), maximum)
+
+        use_interim = raw.get('use_interim_segmentation', defaults.use_interim_segmentation)
+        min_words = int(number('min_segment_words', defaults.min_segment_words, MIN_SEGMENT_WORDS_RANGE, int))
+        max_words = int(number('max_segment_words', defaults.max_segment_words, MAX_SEGMENT_WORDS_RANGE, int))
+        return SegmentationSettings(
+            use_interim_segmentation=use_interim,
+            min_segment_words=min_words,
+            max_segment_words=max(max_words, min_words + SEGMENT_WORDS_MIN_GAP),
+            max_speaking_rate=number('max_speaking_rate', defaults.max_speaking_rate, MAX_SPEAKING_RATE_RANGE, float),
+            max_backlog_s=number('max_backlog_s', defaults.max_backlog_s, MAX_BACKLOG_S_RANGE, float),
         )
 
     @staticmethod
@@ -268,4 +310,5 @@ class ConfigManager:
             translator=raw.get('translator', 'aws'),
             aws_settings=ConfigManager._parse_aws_settings(raw.get('aws_settings', {})),
             google_settings=ConfigManager._parse_google_settings(raw.get('google_settings', {})),
+            segmentation=ConfigManager._parse_segmentation_settings(raw.get('segmentation', {})),
         )

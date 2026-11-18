@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from config.model.config_models import GoogleSettings
-from constants import GOOGLE_ENDPOINTING_OPTIONS, GOOGLE_STT_MODELS, GOOGLE_STT_REGIONS
+from constants import GOOGLE_STT_MODELS, GOOGLE_STT_REGIONS
 from gui_elements.base_translator_widget import BaseTranslatorProviderWidget
 from utils.language_names import display_name, sorted_by_display_name
 
@@ -65,9 +65,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
         self._get_source_language_combo()
         self._set_source_language(google_settings.source_language)
         self._credentials_path = google_settings.credentials_path
-        self.google_endpointing_select.setCurrentText(
-            self._endpointing_label_for_value(google_settings.endpointing_sensitivity)
-        )
         self._apply_target_language_state(google_settings.target_languages)
         self._google_settings = google_settings
         self._check_google_credentials()
@@ -77,9 +74,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
 
     def get_region(self) -> str:
         return self.google_region_select.currentData()
-
-    def get_endpointing_sensitivity(self) -> str:
-        return GOOGLE_ENDPOINTING_OPTIONS[self.google_endpointing_select.currentText()]
 
     def _get_provider_key(self) -> str:
         return 'google'
@@ -182,26 +176,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
 
         parent_layout.addWidget(google_connection_group)
 
-    def _build_extra_language_options(self, layout: QFormLayout) -> None:
-        """No extra form rows for Google; Response Speed lives next to the Engine combo instead."""
-
-    def _build_extra_engine_options(self, layout: QHBoxLayout) -> None:
-        """Add endpointing sensitivity selector right next to the Engine combo."""
-        response_speed_label = QLabel('Response Speed:')
-        layout.addWidget(response_speed_label)
-
-        self.google_endpointing_select = QComboBox()
-        self.google_endpointing_select.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self.google_endpointing_select.addItems(GOOGLE_ENDPOINTING_OPTIONS.keys())
-        self.google_endpointing_select.setCurrentText(
-            self._endpointing_label_for_value(self._google_settings.endpointing_sensitivity)
-        )
-        self.google_endpointing_select.setToolTip(
-            'Adjusts how quickly the system decides that the speaker has finished speaking'
-        )
-        self.google_endpointing_select.setStatusTip('Faster Response = may cut off speech earlier.')
-        layout.addWidget(self.google_endpointing_select)
-
     def _setup_ui(self) -> None:
         main_v_layout = QVBoxLayout(self)
         main_v_layout.setContentsMargins(0, 0, 0, 0)
@@ -224,13 +198,6 @@ class GoogleWidget(BaseTranslatorProviderWidget):
             self._credentials_path = dialog.get_credentials_path()
             self._check_google_credentials()
             LOGGER.info('Google credentials path updated.')
-
-    @staticmethod
-    def _endpointing_label_for_value(value: str) -> str:
-        for label, option_value in GOOGLE_ENDPOINTING_OPTIONS.items():
-            if option_value == value:
-                return label
-        return 'Fast'
 
     class GoogleCredentialsDialog(QDialog):
         """Dialog for selecting the Google Cloud Service Account JSON key file."""

@@ -172,6 +172,10 @@ Output:
 dist/installers/LiveTranslation-<version>-macOS.dmg
 ```
 
+By default the app is ad-hoc signed. On first launch macOS blocks it; open
+**System Settings → Privacy & Security** and click **Open Anyway**
+(macOS 14 and older: right-click the app → **Open**).
+
 ### Windows (.exe)
 
 ```powershell
